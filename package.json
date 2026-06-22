@@ -1,0 +1,43 @@
+{
+  "name": "numcrunch",
+  "version": "1.0.0",
+  "description": "Simple But Yet Complex Calculator",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coltonajackson/numcrunch.git"
+  },
+  "keywords": [
+    "calculator",
+    "nextjs",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/coltonajackson/numcrunch/issues"
+  },
+  "homepage": "https://github.com/coltonajackson/numcrunch#readme",
+  "dependencies": {
+    "next": "^16.2.9",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.9",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
