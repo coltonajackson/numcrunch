@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { CalculationError, evaluateExpression } from "@/lib/calculate";
 
@@ -19,6 +19,9 @@ type HistoryItem = {
 
 const historyStorageKey = "numcrunch-history";
 const resultContinuationValues = ["+", "-", "×", "÷", "^", "%"];
+const emptyHistory: HistoryItem[] = [];
+const historyListeners = new Set<() => void>();
+let historyCache: HistoryItem[] | null = null;
 
 const buttons: CalculatorButton[][] = [
   [
@@ -63,34 +66,7 @@ export function Calculator() {
   const [expression, setExpression] = useState("");
   const [result, setResult] = useState("0");
   const [error, setError] = useState("");
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [isHistoryLoaded, setIsHistoryLoaded] = useState(false);
-
-  useEffect(() => {
-    const storedHistory = window.localStorage.getItem(historyStorageKey);
-
-    if (storedHistory) {
-      try {
-        const parsed: unknown = JSON.parse(storedHistory);
-
-        if (Array.isArray(parsed)) {
-          setHistory(parsed.filter(isHistoryItem).slice(0, 8));
-        }
-      } catch {
-        window.localStorage.removeItem(historyStorageKey);
-      }
-    }
-
-    setIsHistoryLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isHistoryLoaded) {
-      return;
-    }
-
-    window.localStorage.setItem(historyStorageKey, JSON.stringify(history));
-  }, [history, isHistoryLoaded]);
+  const history = useSyncExternalStore(subscribeToHistory, getHistorySnapshot, getServerHistorySnapshot);
 
   const preview = useMemo(() => {
     if (!expression) {
@@ -140,7 +116,7 @@ export function Calculator() {
       setResult(calculation.displayValue);
       setExpression("");
       setError("");
-      setHistory((current) => [historyItem, ...current].slice(0, 8));
+      writeHistory((current) => [historyItem, ...current].slice(0, 8));
     } catch (caughtError) {
       setError(caughtError instanceof CalculationError ? caughtError.message : "Something went wrong");
     }
@@ -236,7 +212,7 @@ export function Calculator() {
           <button
             className="clear-history"
             disabled={history.length === 0}
-            onClick={() => setHistory([])}
+            onClick={() => writeHistory([])}
             type="button"
           >
             Clear
@@ -291,6 +267,55 @@ function unformatResult(value: string): string {
 
 function createId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+function subscribeToHistory(listener: () => void): () => void {
+  historyListeners.add(listener);
+  return () => historyListeners.delete(listener);
+}
+
+function getHistorySnapshot(): HistoryItem[] {
+  if (typeof window === "undefined") {
+    return emptyHistory;
+  }
+
+  if (!historyCache) {
+    historyCache = readStoredHistory();
+  }
+
+  return historyCache;
+}
+
+function getServerHistorySnapshot(): HistoryItem[] {
+  return emptyHistory;
+}
+
+function writeHistory(updater: HistoryItem[] | ((current: HistoryItem[]) => HistoryItem[])) {
+  const current = getHistorySnapshot();
+  historyCache = typeof updater === "function" ? updater(current) : updater;
+  window.localStorage.setItem(historyStorageKey, JSON.stringify(historyCache));
+  historyListeners.forEach((listener) => listener());
+}
+
+function readStoredHistory(): HistoryItem[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const storedHistory = window.localStorage.getItem(historyStorageKey);
+
+  if (!storedHistory) {
+    return [];
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(storedHistory);
+
+    return Array.isArray(parsed) ? parsed.filter(isHistoryItem).slice(0, 8) : [];
+  } catch {
+    window.localStorage.removeItem(historyStorageKey);
+    return [];
+  }
 }
 
 function isHistoryItem(item: unknown): item is HistoryItem {
