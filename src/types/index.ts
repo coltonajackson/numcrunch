@@ -6,6 +6,8 @@ export type BitWidth = 8 | 16 | 32 | 64;
 export interface CalcState {
   displayValue: string;
   expression: string;
+  pythonExpression: string;
+  pythonInputEnabled: boolean;
   accumulator: number | null;
   pendingOp: string | null;
   lastOperand: number | null;
@@ -37,4 +39,7 @@ export type Action =
   | { type: 'SET_BASE'; base: NumBase }
   | { type: 'SET_BIT_WIDTH'; width: BitWidth }
   | { type: 'TOGGLE_ANGLE_MODE' }
-  | { type: 'TOGGLE_SECOND_FN' };
+  | { type: 'TOGGLE_SECOND_FN' }
+  | { type: 'TOGGLE_PYTHON_INPUT' }
+  | { type: 'SET_PYTHON_EXPRESSION'; expression: string }
+  | { type: 'EVALUATE_PYTHON_EXPRESSION' };

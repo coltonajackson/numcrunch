@@ -26,6 +26,10 @@ function useAutoScale(displayValue: string) {
 export function Display({ state }: DisplayProps) {
   const { spanRef, containerRef, scale } = useAutoScale(state.displayValue);
   const isProgrammer = state.mode === 'programmer';
+  const expressionLine =
+    isProgrammer && state.pythonInputEnabled
+      ? (state.isError && state.expression ? state.expression : `py> ${state.pythonExpression}`)
+      : state.expression;
 
   const rawValue = isProgrammer
     ? parseFromBase(state.displayValue, state.numBase)
@@ -38,7 +42,7 @@ export function Display({ state }: DisplayProps) {
         className="text-right text-sm mb-1 min-h-[18px] overflow-hidden text-ellipsis whitespace-nowrap"
         style={{ color: '#888', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
       >
-        {state.expression}
+        {expressionLine}
       </div>
 
       {isProgrammer ? (
