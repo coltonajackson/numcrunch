@@ -43,7 +43,7 @@ export function ProgrammerPad({ state, dispatch }: ProgrammerPadProps) {
                 flex: 1, padding: '5px 0', borderRadius: 8,
                 backgroundColor: numBase === b.id ? '#FF9F0A' : 'transparent',
                 color: numBase === b.id ? '#000' : '#888',
-                fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                fontFamily: 'var(--app-font-display)',
                 fontSize: '0.7rem', fontWeight: 700, border: 'none', cursor: 'pointer',
                 transition: 'all 150ms ease',
               }}
@@ -62,7 +62,7 @@ export function ProgrammerPad({ state, dispatch }: ProgrammerPadProps) {
                 width: 38, padding: '5px 0', borderRadius: 8,
                 backgroundColor: bitWidth === w ? '#30D158' : 'transparent',
                 color: bitWidth === w ? '#000' : '#888',
-                fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                fontFamily: 'var(--app-font-display)',
                 fontSize: '0.7rem', fontWeight: 700, border: 'none', cursor: 'pointer',
                 transition: 'all 150ms ease',
               }}
@@ -115,7 +115,7 @@ export function ProgrammerPad({ state, dispatch }: ProgrammerPadProps) {
                 minHeight: 34,
                 padding: '0 10px',
                 fontSize: '0.78rem',
-                fontFamily: "'SF Mono', 'Fira Code', monospace",
+                fontFamily: 'var(--app-font-mono)',
                 color: '#EEE',
                 backgroundColor: '#111',
                 outline: 'none',

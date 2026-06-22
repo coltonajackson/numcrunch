@@ -22,14 +22,14 @@ interface CalcButtonProps {
 }
 
 const VARIANT_COLORS: Record<ButtonVariant, { bg: string; text: string; hover: string; active: string }> = {
-  number:          { bg: '#333333', text: '#FFFFFF', hover: '#444444', active: '#555555' },
-  operator:        { bg: '#FF9F0A', text: '#FFFFFF', hover: '#FFB340', active: '#FFC563' },
-  'operator-active': { bg: '#FFFFFF', text: '#FF9F0A', hover: '#F0F0F0', active: '#E8E8E8' },
-  function:        { bg: '#505050', text: '#FFFFFF', hover: '#626262', active: '#737373' },
-  special:         { bg: '#A5A5A5', text: '#000000', hover: '#B8B8B8', active: '#C8C8C8' },
-  accent:          { bg: '#1C2A1C', text: '#30D158', hover: '#223022', active: '#2A3A2A' },
-  danger:          { bg: '#3A1C1C', text: '#FF453A', hover: '#4A2222', active: '#5A2828' },
-  dim:             { bg: '#1A1A1A', text: '#4A4A4A', hover: '#1A1A1A', active: '#1A1A1A' },
+  number:            { bg: 'var(--app-number-bg)', text: 'var(--app-number-text)', hover: 'var(--app-number-bg)', active: 'var(--app-number-active)' },
+  operator:          { bg: 'var(--app-operator-bg)', text: 'var(--app-operator-text)', hover: 'var(--app-operator-bg)', active: 'var(--app-operator-active)' },
+  'operator-active': { bg: 'var(--app-operator-active-bg)', text: 'var(--app-operator-active-text)', hover: 'var(--app-operator-active-bg)', active: 'var(--app-operator-active-bg)' },
+  function:          { bg: 'var(--app-function-bg)', text: 'var(--app-function-text)', hover: 'var(--app-function-bg)', active: 'var(--app-function-active)' },
+  special:           { bg: 'var(--app-special-bg)', text: 'var(--app-special-text)', hover: 'var(--app-special-bg)', active: 'var(--app-special-active)' },
+  accent:            { bg: 'var(--app-accent-bg)', text: 'var(--app-accent-text)', hover: 'var(--app-accent-bg)', active: 'var(--app-accent-active)' },
+  danger:            { bg: 'var(--app-danger-bg)', text: 'var(--app-danger-text)', hover: 'var(--app-danger-bg)', active: 'var(--app-danger-active)' },
+  dim:               { bg: 'var(--app-dim-bg)', text: 'var(--app-dim-text)', hover: 'var(--app-dim-bg)', active: 'var(--app-dim-active)' },
 };
 
 export function CalcButton({
@@ -58,7 +58,7 @@ export function CalcButton({
       style={{
         backgroundColor: bg,
         color: colors.text,
-        fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        fontFamily: 'var(--app-font-display)',
         fontSize: fontSize ?? (label.length > 4 ? '0.85rem' : '1.35rem'),
         transform: pressed ? 'scale(0.94)' : 'scale(1)',
         transition: 'transform 80ms ease, background-color 80ms ease',

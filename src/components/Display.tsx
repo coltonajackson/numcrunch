@@ -40,7 +40,7 @@ export function Display({ state }: DisplayProps) {
       {/* Expression / history line */}
       <div
         className="text-right text-sm mb-1 min-h-[18px] overflow-hidden text-ellipsis whitespace-nowrap"
-        style={{ color: '#888', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+        style={{ color: 'var(--app-muted)', fontFamily: 'var(--app-font-display)' }}
       >
         {expressionLine}
       </div>
@@ -59,7 +59,7 @@ export function Display({ state }: DisplayProps) {
             style={{
               fontSize: getDisplayFontSize(state.displayValue.length),
               color: state.isError ? '#FF453A' : '#FFFFFF',
-              fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+              fontFamily: 'var(--app-font-display)',
               fontWeight: 300,
               lineHeight: 1,
               transformOrigin: 'right center',
@@ -105,7 +105,7 @@ function ProgrammerDisplay({ state, rawValue }: { state: CalcState; rawValue: nu
               className="flex-1 text-right overflow-hidden text-ellipsis whitespace-nowrap"
               style={{
                 color: isActive ? '#FFFFFF' : '#555',
-                fontFamily: "'SF Mono', 'Fira Code', monospace",
+                fontFamily: 'var(--app-font-mono)',
                 fontSize: isActive ? '1.6rem' : '0.9rem',
                 fontWeight: isActive ? 300 : 400,
                 letterSpacing: '0.04em',

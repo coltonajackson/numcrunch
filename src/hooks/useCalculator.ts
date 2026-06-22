@@ -45,6 +45,11 @@ const initialState: CalcState = {
     significantDigits: 10,
     notation: 'auto',
   },
+  appearance: {
+    theme: 'graphite',
+    accent: 'orange',
+    font: 'system',
+  },
   history: [],
   workspace: {
     id: 'default-workspace',
@@ -598,6 +603,7 @@ function calcReducer(state: CalcState, action: Action): CalcState {
           numBase: state.numBase,
           bitWidth: state.bitWidth,
           formatSettings: state.formatSettings,
+          appearance: state.appearance,
           history: state.history,
           workspace: state.workspace,
           memory: state.memory,
@@ -688,6 +694,7 @@ function calcReducer(state: CalcState, action: Action): CalcState {
         numBase: state.numBase,
         bitWidth: state.bitWidth,
         formatSettings: state.formatSettings,
+        appearance: state.appearance,
         history: state.history,
         workspace: state.workspace,
         displayValue: newDisplay,
@@ -743,6 +750,15 @@ function calcReducer(state: CalcState, action: Action): CalcState {
         displayValue: formatForDisplay(cur, formatSettings),
       };
     }
+
+    case 'SET_THEME_PRESET':
+      return { ...state, appearance: { ...state.appearance, theme: action.theme } };
+
+    case 'SET_ACCENT_PRESET':
+      return { ...state, appearance: { ...state.appearance, accent: action.accent } };
+
+    case 'SET_FONT_PRESET':
+      return { ...state, appearance: { ...state.appearance, font: action.font } };
 
     case 'TOGGLE_HISTORY_PIN':
       return {
