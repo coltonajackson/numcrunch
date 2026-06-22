@@ -1,5 +1,5 @@
 import { useReducer, useEffect } from 'react';
-import type { CalcState, Action, NumBase } from '../types';
+import type { CalcState, Action, NumBase, HistoryEntry } from '../types';
 import { applyBinaryOp, applyUnaryOp } from '../lib/calculator';
 import { evaluatePythonMathExpression } from '../lib/pythonMath';
 import {
@@ -27,8 +27,15 @@ const initialState: CalcState = {
   isSecondFn: false,
   numBase: 'dec',
   bitWidth: 32,
+  formatSettings: {
+    significantDigits: 10,
+    notation: 'auto',
+  },
+  history: [],
   isError: false,
 };
+
+const MAX_HISTORY_ENTRIES = 150;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -44,11 +51,29 @@ function fmtDisplay(value: number, state: CalcState): string {
   if (state.mode === 'programmer') {
     return formatInBase(value, state.numBase, state.bitWidth);
   }
-  return formatForDisplay(value);
+  return formatForDisplay(value, state.formatSettings);
 }
 
 function isResultBad(v: number) {
   return isNaN(v) || !isFinite(v);
+}
+
+function buildHistoryEntry(state: CalcState, expression: string, result: number): HistoryEntry {
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+    expression: expression.trim(),
+    resultValue: result,
+    resultDisplay: fmtDisplay(result, state),
+    mode: state.mode,
+    createdAt: new Date().toISOString(),
+    pinned: false,
+    note: '',
+  };
+}
+
+function appendHistory(state: CalcState, expression: string, result: number): HistoryEntry[] {
+  const entry = buildHistoryEntry(state, expression || 'Result', result);
+  return [entry, ...state.history].slice(0, MAX_HISTORY_ENTRIES);
 }
 
 function applyPythonExpression(state: CalcState): CalcState {
@@ -97,6 +122,7 @@ function applyPythonExpression(state: CalcState): CalcState {
     activeOp: null,
     replaceOnInput: true,
     hasDecimal: evaluated.value !== Math.trunc(evaluated.value),
+    history: appendHistory(state, state.pythonExpression.trim(), evaluated.value),
   };
 }
 
@@ -209,6 +235,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (state.pendingOp !== null && state.accumulator !== null) {
         const right = state.replaceOnInput ? state.accumulator : getCurrentValue(state);
         const result = applyBinaryOp(state.accumulator, state.pendingOp, right);
+        const historyExpression = `${fmtDisplay(state.accumulator, state)} ${state.pendingOp} ${fmtDisplay(right, state)}`;
 
         if (isResultBad(result)) {
           return { ...state, displayValue: 'Error', isError: true, accumulator: null, pendingOp: null, activeOp: null, expression: '' };
@@ -225,6 +252,7 @@ function reducer(state: CalcState, action: Action): CalcState {
           hasDecimal: false,
           activeOp: null,
           isSecondFn: false,
+          history: appendHistory(state, historyExpression, result),
         };
       }
 
@@ -232,6 +260,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (state.lastOp !== null && state.lastOperand !== null) {
         const cur = getCurrentValue(state);
         const result = applyBinaryOp(cur, state.lastOp, state.lastOperand);
+        const historyExpression = `${fmtDisplay(cur, state)} ${state.lastOp} ${fmtDisplay(state.lastOperand, state)}`;
         if (isResultBad(result)) {
           return { ...state, displayValue: 'Error', isError: true, activeOp: null, expression: '' };
         }
@@ -243,6 +272,7 @@ function reducer(state: CalcState, action: Action): CalcState {
           hasDecimal: false,
           activeOp: null,
           isSecondFn: false,
+          history: appendHistory(state, historyExpression, result),
         };
       }
 
@@ -254,6 +284,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (state.isError && action.op !== '+/-') return state;
       const value = getCurrentValue(state);
       const result = applyUnaryOp(value, action.op, state.angleMode);
+      const unaryExpression = `${action.op}(${fmtDisplay(value, state)})`;
 
       if (isResultBad(result)) {
         return { ...state, displayValue: 'Error', isError: true };
@@ -264,6 +295,7 @@ function reducer(state: CalcState, action: Action): CalcState {
         replaceOnInput: true,
         hasDecimal: result !== Math.trunc(result),
         isSecondFn: false,
+        history: appendHistory(state, unaryExpression, result),
       };
     }
 
@@ -295,6 +327,8 @@ function reducer(state: CalcState, action: Action): CalcState {
           angleMode: state.angleMode,
           numBase: state.numBase,
           bitWidth: state.bitWidth,
+          formatSettings: state.formatSettings,
+          history: state.history,
           memory: state.memory,
         };
       }
@@ -346,7 +380,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (isPythonModeActive) return state;
       return {
         ...state,
-        displayValue: formatForDisplay(action.value),
+        displayValue: formatForDisplay(action.value, state.formatSettings),
         replaceOnInput: true,
         hasDecimal: action.value !== Math.trunc(action.value),
         isSecondFn: false,
@@ -374,7 +408,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       const newDisplay =
         action.mode === 'programmer'
           ? formatInBase(Math.trunc(Math.abs(cur)), 'dec', state.bitWidth)
-          : formatForDisplay(cur);
+          : formatForDisplay(cur, state.formatSettings);
       return {
         ...initialState,
         mode: action.mode,
@@ -382,6 +416,8 @@ function reducer(state: CalcState, action: Action): CalcState {
         angleMode: state.angleMode,
         numBase: state.numBase,
         bitWidth: state.bitWidth,
+        formatSettings: state.formatSettings,
+        history: state.history,
         displayValue: newDisplay,
       };
     }
@@ -406,6 +442,63 @@ function reducer(state: CalcState, action: Action): CalcState {
         ...state,
         bitWidth: action.width,
         displayValue: formatInBase(masked, state.numBase, action.width),
+      };
+    }
+
+    case 'SET_FORMAT_SIGNIFICANT_DIGITS': {
+      const digits = Math.min(15, Math.max(3, Math.trunc(action.digits)));
+      const formatSettings = { ...state.formatSettings, significantDigits: digits };
+      if (state.mode === 'programmer' || state.isError) {
+        return { ...state, formatSettings };
+      }
+      const cur = getCurrentValue(state);
+      return {
+        ...state,
+        formatSettings,
+        displayValue: formatForDisplay(cur, formatSettings),
+      };
+    }
+
+    case 'SET_FORMAT_NOTATION': {
+      const formatSettings = { ...state.formatSettings, notation: action.notation };
+      if (state.mode === 'programmer' || state.isError) {
+        return { ...state, formatSettings };
+      }
+      const cur = getCurrentValue(state);
+      return {
+        ...state,
+        formatSettings,
+        displayValue: formatForDisplay(cur, formatSettings),
+      };
+    }
+
+    case 'TOGGLE_HISTORY_PIN':
+      return {
+        ...state,
+        history: state.history.map((entry) =>
+          entry.id === action.id ? { ...entry, pinned: !entry.pinned } : entry),
+      };
+
+    case 'SET_HISTORY_NOTE':
+      return {
+        ...state,
+        history: state.history.map((entry) =>
+          entry.id === action.id ? { ...entry, note: action.note } : entry),
+      };
+
+    case 'CLEAR_HISTORY':
+      return { ...state, history: [] };
+
+    case 'RECALL_HISTORY_ENTRY': {
+      const entry = state.history.find((item) => item.id === action.id);
+      if (!entry) return state;
+      return {
+        ...state,
+        displayValue: fmtDisplay(entry.resultValue, state),
+        expression: `recalled: ${entry.expression}`,
+        isError: false,
+        replaceOnInput: true,
+        hasDecimal: entry.resultValue !== Math.trunc(entry.resultValue),
       };
     }
 

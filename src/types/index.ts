@@ -2,6 +2,23 @@ export type CalcMode = 'basic' | 'scientific' | 'programmer';
 export type AngleMode = 'deg' | 'rad';
 export type NumBase = 'hex' | 'dec' | 'oct' | 'bin';
 export type BitWidth = 8 | 16 | 32 | 64;
+export type NotationMode = 'auto' | 'fixed' | 'scientific' | 'engineering';
+
+export interface FormatSettings {
+  significantDigits: number;
+  notation: NotationMode;
+}
+
+export interface HistoryEntry {
+  id: string;
+  expression: string;
+  resultValue: number;
+  resultDisplay: string;
+  mode: CalcMode;
+  createdAt: string;
+  pinned: boolean;
+  note: string;
+}
 
 export interface CalcState {
   displayValue: string;
@@ -21,6 +38,8 @@ export interface CalcState {
   isSecondFn: boolean;
   numBase: NumBase;
   bitWidth: BitWidth;
+  formatSettings: FormatSettings;
+  history: HistoryEntry[];
   isError: boolean;
 }
 
@@ -38,6 +57,12 @@ export type Action =
   | { type: 'SET_MODE'; mode: CalcMode }
   | { type: 'SET_BASE'; base: NumBase }
   | { type: 'SET_BIT_WIDTH'; width: BitWidth }
+  | { type: 'SET_FORMAT_SIGNIFICANT_DIGITS'; digits: number }
+  | { type: 'SET_FORMAT_NOTATION'; notation: NotationMode }
+  | { type: 'TOGGLE_HISTORY_PIN'; id: string }
+  | { type: 'SET_HISTORY_NOTE'; id: string; note: string }
+  | { type: 'CLEAR_HISTORY' }
+  | { type: 'RECALL_HISTORY_ENTRY'; id: string }
   | { type: 'TOGGLE_ANGLE_MODE' }
   | { type: 'TOGGLE_SECOND_FN' }
   | { type: 'TOGGLE_PYTHON_INPUT' }
