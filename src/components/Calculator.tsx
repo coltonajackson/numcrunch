@@ -21,7 +21,7 @@ const NOTATION_LABELS: Record<NotationMode, string> = {
 };
 
 export function Calculator() {
-  const { state, dispatch } = useCalculator();
+  const { state, dispatch, canUndo, canRedo } = useCalculator();
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -34,6 +34,24 @@ export function Calculator() {
     }
     window.addEventListener('pointerdown', handlePointerDown);
     return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
+
+  useEffect(() => {
+    function handleShortcut(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      const hasPrimaryModifier = (e.ctrlKey || e.metaKey) && !e.altKey;
+      if (!hasPrimaryModifier) return;
+      if (e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setIsHistoryOpen((open) => !open);
+      }
+    }
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
   }, []);
 
   const maxWidth =
@@ -67,6 +85,44 @@ export function Calculator() {
               Unified Calculator
             </span>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => dispatch({ type: 'UNDO' })}
+                disabled={!canUndo}
+                style={{
+                  border: 'none',
+                  backgroundColor: canUndo ? '#2C2C2E' : '#1A1A1A',
+                  color: canUndo ? '#F2F2F7' : '#6A6A6A',
+                  borderRadius: 8,
+                  padding: '5px 7px',
+                  cursor: canUndo ? 'pointer' : 'not-allowed',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                }}
+                aria-label="Undo"
+                title="Undo (Ctrl/Cmd+Z)"
+              >
+                ↶
+              </button>
+              <button
+                onClick={() => dispatch({ type: 'REDO' })}
+                disabled={!canRedo}
+                style={{
+                  border: 'none',
+                  backgroundColor: canRedo ? '#2C2C2E' : '#1A1A1A',
+                  color: canRedo ? '#F2F2F7' : '#6A6A6A',
+                  borderRadius: 8,
+                  padding: '5px 7px',
+                  cursor: canRedo ? 'pointer' : 'not-allowed',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                }}
+                aria-label="Redo"
+                title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)"
+              >
+                ↷
+              </button>
               <button
                 onClick={() => setIsHistoryOpen((v) => !v)}
                 style={{
@@ -189,6 +245,30 @@ export function Calculator() {
                     </button>
                   ))}
                 </div>
+
+                <div className="mt-2 pt-2" style={{ borderTop: '1px solid #2C2C2E' }}>
+                  <p
+                    className="text-xs px-2 pb-1"
+                    style={{ color: '#8E8E93', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+                  >
+                    Keyboard Shortcuts
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 px-2">
+                    {[
+                      ['Undo', 'Ctrl/Cmd + Z'],
+                      ['Redo', 'Ctrl/Cmd + Shift + Z'],
+                      ['Redo (alt)', 'Ctrl/Cmd + Y'],
+                      ['Clear', 'Ctrl/Cmd + L'],
+                      ['History', 'Ctrl/Cmd + H'],
+                      ['Mode', 'Ctrl/Cmd + 1/2/3'],
+                    ].map(([label, shortcut]) => (
+                      <div key={label} className="flex justify-between gap-2 text-[11px]">
+                        <span style={{ color: '#A1A1A6' }}>{label}</span>
+                        <span style={{ color: '#D1D1D6', fontFamily: "'SF Mono', 'Fira Code', monospace" }}>{shortcut}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -241,7 +321,7 @@ export function Calculator() {
 
         {/* Keyboard hint */}
         <p className="text-center text-xs pb-2 pt-0" style={{ color: '#2C2C2E' }}>
-          Keyboard supported · esc = clear
+          Keyboard supported · Esc = clear · Ctrl/Cmd+Z = undo
         </p>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useReducer, useEffect } from 'react';
-import type { CalcState, Action, NumBase, HistoryEntry } from '../types';
+import type { CalcState, Action, NumBase, HistoryEntry, CalcMode } from '../types';
 import { applyBinaryOp, applyUnaryOp } from '../lib/calculator';
 import { evaluatePythonMathExpression } from '../lib/pythonMath';
 import {
@@ -36,6 +36,13 @@ const initialState: CalcState = {
 };
 
 const MAX_HISTORY_ENTRIES = 150;
+const MAX_UNDO_STEPS = 120;
+
+interface UndoHistoryState {
+  past: CalcState[];
+  present: CalcState;
+  future: CalcState[];
+}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -128,10 +135,13 @@ function applyPythonExpression(state: CalcState): CalcState {
 
 // ─── reducer ────────────────────────────────────────────────────────────────
 
-function reducer(state: CalcState, action: Action): CalcState {
+function calcReducer(state: CalcState, action: Action): CalcState {
   const isPythonModeActive = state.mode === 'programmer' && state.pythonInputEnabled;
 
   switch (action.type) {
+    case 'UNDO':
+    case 'REDO':
+      return state;
 
     case 'PRESS_DIGIT': {
       if (isPythonModeActive) return state;
@@ -543,19 +553,92 @@ function reducer(state: CalcState, action: Action): CalcState {
   }
 }
 
+function historyReducer(history: UndoHistoryState, action: Action): UndoHistoryState {
+  if (action.type === 'UNDO') {
+    if (history.past.length === 0) return history;
+    const [previous, ...remainingPast] = history.past;
+    return {
+      past: remainingPast,
+      present: previous,
+      future: [history.present, ...history.future].slice(0, MAX_UNDO_STEPS),
+    };
+  }
+
+  if (action.type === 'REDO') {
+    if (history.future.length === 0) return history;
+    const [nextPresent, ...remainingFuture] = history.future;
+    return {
+      past: [history.present, ...history.past].slice(0, MAX_UNDO_STEPS),
+      present: nextPresent,
+      future: remainingFuture,
+    };
+  }
+
+  const nextPresent = calcReducer(history.present, action);
+  if (nextPresent === history.present) return history;
+
+  return {
+    past: [history.present, ...history.past].slice(0, MAX_UNDO_STEPS),
+    present: nextPresent,
+    future: [],
+  };
+}
+
 // ─── public hook ────────────────────────────────────────────────────────────
 
 export function useCalculator() {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [historyState, dispatch] = useReducer(historyReducer, {
+    past: [],
+    present: initialState,
+    future: [],
+  });
+  const state = historyState.present;
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      const isEditableTarget = Boolean(
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable),
+      );
+      const key = e.key;
+      const normalized = key.toLowerCase();
+      const hasPrimaryModifier = (e.ctrlKey || e.metaKey) && !e.altKey;
+
+      if (hasPrimaryModifier && !isEditableTarget) {
+        const modeShortcut: Record<string, CalcMode> = {
+          '1': 'basic',
+          '2': 'scientific',
+          '3': 'programmer',
+        };
+
+        if (normalized === 'z') {
+          e.preventDefault();
+          dispatch({ type: e.shiftKey ? 'REDO' : 'UNDO' });
+          return;
+        }
+        if (normalized === 'y') {
+          e.preventDefault();
+          dispatch({ type: 'REDO' });
+          return;
+        }
+        if (normalized === 'l') {
+          e.preventDefault();
+          dispatch({ type: 'PRESS_CLEAR' });
+          return;
+        }
+        const selectedMode = modeShortcut[key];
+        if (selectedMode) {
+          e.preventDefault();
+          dispatch({ type: 'SET_MODE', mode: selectedMode });
+          return;
+        }
+      }
+
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isEditableTarget) {
         return;
       }
-      const k = e.key;
+      const k = key;
 
       if (state.mode === 'programmer' && state.pythonInputEnabled) {
         if (k === 'Enter' || k === '=') {
@@ -608,5 +691,10 @@ export function useCalculator() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [state.mode, state.numBase, state.pythonInputEnabled]);
 
-  return { state, dispatch };
+  return {
+    state,
+    dispatch,
+    canUndo: historyState.past.length > 0,
+    canRedo: historyState.future.length > 0,
+  };
 }

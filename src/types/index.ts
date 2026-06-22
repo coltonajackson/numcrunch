@@ -44,6 +44,8 @@ export interface CalcState {
 }
 
 export type Action =
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
   | { type: 'PRESS_DIGIT'; digit: string }
   | { type: 'PRESS_DECIMAL' }
   | { type: 'PRESS_OPERATOR'; op: string }
