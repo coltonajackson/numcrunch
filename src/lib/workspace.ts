@@ -1,4 +1,4 @@
-import type { WorkspaceTemplate, WorkspaceVariable } from '../types';
+import type { WorkspaceLine, WorkspaceTemplate, WorkspaceVariable } from '../types';
 
 type WorkspaceEvalResult =
   | { ok: true; value: number }
@@ -117,6 +117,139 @@ export function extractWorkspaceDependencies(sourceExpression: string): string[]
     }
   }
   return [...unique];
+}
+
+export interface WorkspaceDependencyGraphNode {
+  lineId: string;
+  lineIndex: number;
+  expression: string;
+  outputVariable: string | null;
+  dependsOnVariables: string[];
+  externalVariables: string[];
+  unresolvedVariables: string[];
+  upstreamLineIds: string[];
+  downstreamLineIds: string[];
+  hasCycle: boolean;
+}
+
+export interface WorkspaceDependencyGraph {
+  nodes: WorkspaceDependencyGraphNode[];
+  evaluationOrderLineIds: string[];
+  cycleLineIds: string[];
+  edgeCount: number;
+}
+
+export function buildWorkspaceDependencyGraph(
+  lines: WorkspaceLine[],
+  variables: WorkspaceVariable[],
+): WorkspaceDependencyGraph {
+  const variableNames = new Set(variables.map((variable) => variable.name));
+  const producerByVariable = new Map<string, string>();
+  for (const line of lines) {
+    const name = line.variableName.trim();
+    if (isValidVariableName(name)) {
+      producerByVariable.set(name, line.id);
+    }
+  }
+
+  const dependencyMap = new Map<string, string[]>();
+  const upstreamMap = new Map<string, Set<string>>();
+  const downstreamMap = new Map<string, Set<string>>();
+  for (const line of lines) {
+    dependencyMap.set(line.id, extractWorkspaceDependencies(line.expression));
+    upstreamMap.set(line.id, new Set<string>());
+    downstreamMap.set(line.id, new Set<string>());
+  }
+
+  for (const line of lines) {
+    const dependencies = dependencyMap.get(line.id) ?? [];
+    for (const dependency of dependencies) {
+      const producerLineId = producerByVariable.get(dependency);
+      if (!producerLineId) continue;
+      upstreamMap.get(line.id)?.add(producerLineId);
+      downstreamMap.get(producerLineId)?.add(line.id);
+    }
+  }
+
+  const cycleLineIds = new Set<string>();
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const stack: string[] = [];
+
+  function dfs(lineId: string) {
+    visited.add(lineId);
+    inStack.add(lineId);
+    stack.push(lineId);
+
+    for (const next of downstreamMap.get(lineId) ?? []) {
+      if (!visited.has(next)) {
+        dfs(next);
+      } else if (inStack.has(next)) {
+        const startIndex = stack.lastIndexOf(next);
+        if (startIndex >= 0) {
+          for (let i = startIndex; i < stack.length; i += 1) {
+            cycleLineIds.add(stack[i]);
+          }
+        }
+        cycleLineIds.add(next);
+      }
+    }
+
+    stack.pop();
+    inStack.delete(lineId);
+  }
+
+  for (const line of lines) {
+    if (!visited.has(line.id)) dfs(line.id);
+  }
+
+  const indegree = new Map<string, number>();
+  for (const line of lines) {
+    indegree.set(line.id, upstreamMap.get(line.id)?.size ?? 0);
+  }
+  const queue: string[] = lines
+    .filter((line) => (indegree.get(line.id) ?? 0) === 0)
+    .map((line) => line.id);
+  const evaluationOrderLineIds: string[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    evaluationOrderLineIds.push(current);
+    for (const downstreamId of downstreamMap.get(current) ?? []) {
+      const nextInDegree = (indegree.get(downstreamId) ?? 0) - 1;
+      indegree.set(downstreamId, nextInDegree);
+      if (nextInDegree === 0) queue.push(downstreamId);
+    }
+  }
+
+  const nodes: WorkspaceDependencyGraphNode[] = lines.map((line, index) => {
+    const dependencies = dependencyMap.get(line.id) ?? [];
+    const externalVariables = dependencies.filter((dependency) => !producerByVariable.has(dependency) && variableNames.has(dependency));
+    const unresolvedVariables = dependencies.filter((dependency) => !producerByVariable.has(dependency) && !variableNames.has(dependency));
+
+    return {
+      lineId: line.id,
+      lineIndex: index,
+      expression: line.expression,
+      outputVariable: isValidVariableName(line.variableName.trim()) ? line.variableName.trim() : null,
+      dependsOnVariables: dependencies,
+      externalVariables,
+      unresolvedVariables,
+      upstreamLineIds: [...(upstreamMap.get(line.id) ?? [])],
+      downstreamLineIds: [...(downstreamMap.get(line.id) ?? [])],
+      hasCycle: cycleLineIds.has(line.id),
+    };
+  });
+
+  const edgeCount = nodes.reduce((count, node) => count + node.upstreamLineIds.length, 0);
+
+  return {
+    nodes,
+    evaluationOrderLineIds,
+    cycleLineIds: [...cycleLineIds],
+    edgeCount,
+  };
 }
 
 export function isWorkspaceVariableName(name: string): boolean {
