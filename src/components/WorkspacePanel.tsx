@@ -75,7 +75,7 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
             </button>
           ))}
           <button
-            onClick={() => workspace.lines.forEach((line) => dispatch({ type: 'EVALUATE_WORKSPACE_LINE', lineId: line.id }))}
+            onClick={() => dispatch({ type: 'EVALUATE_ALL_WORKSPACE_LINES' })}
             style={{
               border: 'none',
               borderRadius: 8,
@@ -168,6 +168,16 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
                   {line.resultDisplay || '—'}
                 </span>
               </div>
+              {line.error && (
+                <p className="text-[11px] mt-1" style={{ color: '#FF453A' }}>
+                  {line.error}
+                </p>
+              )}
+              {line.dependencies.length > 0 && (
+                <p className="text-[11px] mt-1 truncate" style={{ color: '#7D7D82' }}>
+                  deps: {line.dependencies.join(', ')}
+                </p>
+              )}
 
               <div className="flex items-center gap-2 mt-1">
                 <input

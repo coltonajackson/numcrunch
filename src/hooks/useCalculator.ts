@@ -12,6 +12,7 @@ import { applyBinaryOp, applyUnaryOp } from '../lib/calculator';
 import { evaluatePythonMathExpression } from '../lib/pythonMath';
 import {
   evaluateWorkspaceExpression,
+  extractWorkspaceDependencies,
   isWorkspaceVariableName,
   WORKSPACE_TEMPLATES,
 } from '../lib/workspace';
@@ -81,6 +82,8 @@ function createWorkspaceLine(partial?: Partial<WorkspaceLine>): WorkspaceLine {
     expression: '',
     resultValue: null,
     resultDisplay: '',
+    dependencies: [],
+    error: null,
     variableName: '',
     note: '',
     createdAt: ts,
@@ -166,6 +169,177 @@ function workspaceWithUpdatedLine(
     ...state.workspace,
     updatedAt: nowIso(),
     lines: state.workspace.lines.map((line) => (line.id === lineId ? updater(line) : line)),
+  };
+}
+
+interface WorkspaceRecalcOptions {
+  workspaceOverride?: CalcState['workspace'];
+  triggerLineIds?: string[];
+  changedVariableNames?: string[];
+  focusedLineId?: string;
+}
+
+interface WorkspaceRecalcResult {
+  workspace: CalcState['workspace'];
+  focusedLine: WorkspaceLine | null;
+  focusedLineError: string | null;
+}
+
+function variableSignature(variables: WorkspaceVariable[]): string {
+  return variables
+    .map((item) => `${item.name}:${item.value}:${item.sourceLineId ?? ''}`)
+    .sort()
+    .join('|');
+}
+
+function resolveImpactedWorkspaceLineIds(
+  lines: WorkspaceLine[],
+  triggerLineIds: Set<string>,
+  changedVariableNames: Set<string>,
+): Set<string> {
+  const impactedLineIds = new Set<string>(triggerLineIds);
+  const propagatedVariables = new Set<string>(changedVariableNames);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const line of lines) {
+      const assignedVariableName = line.variableName.trim();
+      if (impactedLineIds.has(line.id)) {
+        if (isWorkspaceVariableName(assignedVariableName) && !propagatedVariables.has(assignedVariableName)) {
+          propagatedVariables.add(assignedVariableName);
+          changed = true;
+        }
+        continue;
+      }
+
+      const dependencies = extractWorkspaceDependencies(line.expression);
+      if (dependencies.some((dependency) => propagatedVariables.has(dependency))) {
+        impactedLineIds.add(line.id);
+        changed = true;
+        if (isWorkspaceVariableName(assignedVariableName) && !propagatedVariables.has(assignedVariableName)) {
+          propagatedVariables.add(assignedVariableName);
+        }
+      }
+    }
+  }
+
+  return impactedLineIds;
+}
+
+function recalculateWorkspaceDependencies(
+  state: CalcState,
+  options: WorkspaceRecalcOptions,
+): WorkspaceRecalcResult {
+  const workspace = options.workspaceOverride ?? state.workspace;
+  const triggerLineIds = new Set(options.triggerLineIds ?? []);
+  const changedVariableNames = new Set(options.changedVariableNames ?? []);
+  const focusedLineId = options.focusedLineId ?? null;
+
+  if (triggerLineIds.size === 0 && changedVariableNames.size === 0) {
+    return { workspace, focusedLine: null, focusedLineError: null };
+  }
+
+  const impactedLineIds = resolveImpactedWorkspaceLineIds(workspace.lines, triggerLineIds, changedVariableNames);
+  if (impactedLineIds.size === 0) {
+    return { workspace, focusedLine: null, focusedLineError: null };
+  }
+
+  let workingLines = [...workspace.lines];
+  let workingVariables = [...workspace.variables];
+  let pass = 0;
+  let mutated = false;
+
+  while (pass < Math.max(2, impactedLineIds.size + 1)) {
+    pass += 1;
+    let passChanged = false;
+    const signatureBeforePass = variableSignature(workingVariables);
+
+    for (let index = 0; index < workingLines.length; index += 1) {
+      const line = workingLines[index];
+      if (!impactedLineIds.has(line.id)) continue;
+
+      const dependencies = extractWorkspaceDependencies(line.expression);
+      const evaluation = evaluateWorkspaceExpression(line.expression, workingVariables, line.resultValue);
+      let nextVariables = workingVariables.filter((item) => item.sourceLineId !== line.id);
+
+      let nextLine: WorkspaceLine;
+      if (evaluation.ok) {
+        const resultDisplay = fmtWorkspaceValue(evaluation.value, state);
+        const variableName = line.variableName.trim();
+        if (isWorkspaceVariableName(variableName)) {
+          nextVariables = upsertWorkspaceVariable(nextVariables, variableName, evaluation.value, line.id);
+        }
+
+        const changed =
+          line.resultValue !== evaluation.value ||
+          line.resultDisplay !== resultDisplay ||
+          line.error !== null ||
+          line.dependencies.join('|') !== dependencies.join('|');
+
+        nextLine = changed
+          ? {
+            ...line,
+            resultValue: evaluation.value,
+            resultDisplay,
+            dependencies,
+            error: null,
+            updatedAt: nowIso(),
+          }
+          : line;
+      } else {
+        const changed =
+          line.resultValue !== null ||
+          line.resultDisplay !== '' ||
+          line.error !== evaluation.error ||
+          line.dependencies.join('|') !== dependencies.join('|');
+        nextLine = changed
+          ? {
+            ...line,
+            resultValue: null,
+            resultDisplay: '',
+            dependencies,
+            error: evaluation.error,
+            updatedAt: nowIso(),
+          }
+          : line;
+      }
+
+      if (nextLine !== line) {
+        workingLines[index] = nextLine;
+        passChanged = true;
+      }
+
+      const signatureBeforeLineVariables = variableSignature(workingVariables);
+      const signatureAfterLineVariables = variableSignature(nextVariables);
+      if (signatureBeforeLineVariables !== signatureAfterLineVariables) {
+        passChanged = true;
+      }
+      workingVariables = nextVariables;
+    }
+
+    const signatureAfterPass = variableSignature(workingVariables);
+    if (!passChanged && signatureBeforePass === signatureAfterPass) {
+      break;
+    }
+    mutated = mutated || passChanged || signatureBeforePass !== signatureAfterPass;
+  }
+
+  const focusedLine = focusedLineId
+    ? workingLines.find((line) => line.id === focusedLineId) ?? null
+    : null;
+
+  return {
+    workspace: mutated
+      ? {
+        ...workspace,
+        lines: workingLines,
+        variables: workingVariables,
+        updatedAt: nowIso(),
+      }
+      : workspace,
+    focusedLine,
+    focusedLineError: focusedLine?.error ?? null,
   };
 }
 
@@ -632,15 +806,24 @@ function calcReducer(state: CalcState, action: Action): CalcState {
 
     case 'REMOVE_WORKSPACE_LINE': {
       if (state.workspace.lines.length <= 1) return state;
+      const removedLine = state.workspace.lines.find((line) => line.id === action.lineId);
+      const removedVariableNames = removedLine && isWorkspaceVariableName(removedLine.variableName.trim())
+        ? [removedLine.variableName.trim()]
+        : [];
       const remainingLines = state.workspace.lines.filter((line) => line.id !== action.lineId);
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        lines: remainingLines,
+        variables: state.workspace.variables.filter((variable) => variable.sourceLineId !== action.lineId),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: removedVariableNames,
+      });
       return {
         ...state,
-        workspace: {
-          ...state.workspace,
-          updatedAt: nowIso(),
-          lines: remainingLines,
-          variables: state.workspace.variables.filter((variable) => variable.sourceLineId !== action.lineId),
-        },
+        workspace: recalculated.workspace,
       };
     }
 
@@ -650,6 +833,8 @@ function calcReducer(state: CalcState, action: Action): CalcState {
         workspace: workspaceWithUpdatedLine(state, action.lineId, (line) => ({
           ...line,
           expression: action.expression,
+          dependencies: extractWorkspaceDependencies(action.expression),
+          error: null,
           updatedAt: nowIso(),
         })),
       };
@@ -664,56 +849,92 @@ function calcReducer(state: CalcState, action: Action): CalcState {
         })),
       };
 
-    case 'UPDATE_WORKSPACE_LINE_VARIABLE_NAME':
-      return {
-        ...state,
-        workspace: workspaceWithUpdatedLine(state, action.lineId, (line) => ({
-          ...line,
+    case 'UPDATE_WORKSPACE_LINE_VARIABLE_NAME': {
+      const line = state.workspace.lines.find((item) => item.id === action.lineId);
+      if (!line) return state;
+      const previousName = line.variableName.trim();
+      const nextName = action.variableName.trim();
+      let nextVariables = state.workspace.variables.filter((variable) => variable.sourceLineId !== action.lineId);
+      if (line.resultValue !== null && isWorkspaceVariableName(nextName)) {
+        nextVariables = upsertWorkspaceVariable(nextVariables, nextName, line.resultValue, line.id);
+      }
+      const baseWorkspace = {
+        ...workspaceWithUpdatedLine(state, action.lineId, (item) => ({
+          ...item,
           variableName: action.variableName,
           updatedAt: nowIso(),
         })),
+        variables: nextVariables,
+        updatedAt: nowIso(),
       };
+      const changedNames = [previousName, nextName].filter(Boolean);
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: changedNames,
+      });
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+      };
+    }
 
     case 'EVALUATE_WORKSPACE_LINE': {
       const line = state.workspace.lines.find((item) => item.id === action.lineId);
       if (!line) return state;
-      const ans = line.resultValue ?? getCurrentValue(state);
-      const evaluated = evaluateWorkspaceExpression(line.expression, state.workspace.variables, ans);
-      if (!evaluated.ok) {
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        triggerLineIds: [line.id],
+        focusedLineId: line.id,
+      });
+      if (recalculated.focusedLineError) {
         return {
           ...state,
+          workspace: recalculated.workspace,
           displayValue: 'Error',
-          expression: evaluated.error,
+          expression: recalculated.focusedLineError,
           isError: true,
           replaceOnInput: true,
         };
       }
 
-      const evaluatedDisplay = fmtWorkspaceValue(evaluated.value, state);
-      let nextVariables = state.workspace.variables;
-      const trimmedVariableName = line.variableName.trim();
-      if (trimmedVariableName && isWorkspaceVariableName(trimmedVariableName)) {
-        nextVariables = upsertWorkspaceVariable(nextVariables, trimmedVariableName, evaluated.value, line.id);
+      const focusedLine = recalculated.focusedLine;
+      if (!focusedLine || focusedLine.resultValue === null) {
+        return { ...state, workspace: recalculated.workspace };
       }
 
       return {
         ...state,
-        displayValue: fmtDisplay(evaluated.value, state),
-        expression: `ws: ${line.expression}`,
+        workspace: recalculated.workspace,
+        displayValue: fmtDisplay(focusedLine.resultValue, state),
+        expression: `ws: ${focusedLine.expression}`,
         isError: false,
         replaceOnInput: true,
-        hasDecimal: evaluated.value !== Math.trunc(evaluated.value),
-        history: appendHistory(state, line.expression, evaluated.value),
-        workspace: {
-          ...workspaceWithUpdatedLine(state, line.id, (item) => ({
-            ...item,
-            resultValue: evaluated.value,
-            resultDisplay: evaluatedDisplay,
-            updatedAt: nowIso(),
-          })),
-          variables: nextVariables,
-          updatedAt: nowIso(),
-        },
+        hasDecimal: focusedLine.resultValue !== Math.trunc(focusedLine.resultValue),
+        history: appendHistory(state, focusedLine.expression, focusedLine.resultValue),
+      };
+    }
+
+    case 'EVALUATE_ALL_WORKSPACE_LINES': {
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        triggerLineIds: state.workspace.lines.map((line) => line.id),
+      });
+      const latestLine = [...recalculated.workspace.lines]
+        .reverse()
+        .find((line) => line.resultValue !== null && !line.error);
+      if (!latestLine || latestLine.resultValue === null) {
+        return {
+          ...state,
+          workspace: recalculated.workspace,
+          isError: false,
+        };
+      }
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+        displayValue: fmtDisplay(latestLine.resultValue, state),
+        expression: `ws: ${latestLine.expression}`,
+        isError: false,
+        replaceOnInput: true,
+        hasDecimal: latestLine.resultValue !== Math.trunc(latestLine.resultValue),
       };
     }
 
@@ -722,39 +943,61 @@ function calcReducer(state: CalcState, action: Action): CalcState {
       if (!line || line.resultValue === null) return state;
       const name = line.variableName.trim();
       if (!isWorkspaceVariableName(name)) return state;
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        variables: upsertWorkspaceVariable(state.workspace.variables, name, line.resultValue, line.id),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: [name],
+      });
       return {
         ...state,
-        workspace: {
-          ...state.workspace,
-          updatedAt: nowIso(),
-          variables: upsertWorkspaceVariable(state.workspace.variables, name, line.resultValue, line.id),
-        },
+        workspace: recalculated.workspace,
       };
     }
 
-    case 'SET_WORKSPACE_VARIABLE_VALUE':
+    case 'SET_WORKSPACE_VARIABLE_VALUE': {
+      const target = state.workspace.variables.find((item) => item.id === action.variableId);
+      if (!target || !Number.isFinite(action.value)) return state;
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        variables: state.workspace.variables.map((variable) => (
+          variable.id === action.variableId
+            ? { ...variable, value: action.value, updatedAt: nowIso() }
+            : variable
+        )),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: [target.name],
+      });
       return {
         ...state,
-        workspace: {
-          ...state.workspace,
-          updatedAt: nowIso(),
-          variables: state.workspace.variables.map((variable) => (
-            variable.id === action.variableId
-              ? { ...variable, value: action.value, updatedAt: nowIso() }
-              : variable
-          )),
-        },
+        workspace: recalculated.workspace,
+        isError: false,
       };
+    }
 
-    case 'REMOVE_WORKSPACE_VARIABLE':
+    case 'REMOVE_WORKSPACE_VARIABLE': {
+      const target = state.workspace.variables.find((variable) => variable.id === action.variableId);
+      if (!target) return state;
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        variables: state.workspace.variables.filter((variable) => variable.id !== action.variableId),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: [target.name],
+      });
       return {
         ...state,
-        workspace: {
-          ...state.workspace,
-          updatedAt: nowIso(),
-          variables: state.workspace.variables.filter((variable) => variable.id !== action.variableId),
-        },
+        workspace: recalculated.workspace,
       };
+    }
 
     case 'APPLY_WORKSPACE_TEMPLATE': {
       const template = WORKSPACE_TEMPLATES[action.template];
@@ -762,19 +1005,25 @@ function calcReducer(state: CalcState, action: Action): CalcState {
       const seededVariables = template.variables.map((seed) => createWorkspaceVariable(seed.name, seed.value, null));
       const seededLines = template.lines.map((seed) => createWorkspaceLine({
         expression: seed.expression,
+        dependencies: extractWorkspaceDependencies(seed.expression),
         variableName: seed.variableName ?? '',
         note: seed.note ?? '',
       }));
+      const baseWorkspace = {
+        ...state.workspace,
+        title: template.title,
+        updatedAt: nowIso(),
+        variables: seededVariables,
+        lines: seededLines.length > 0 ? seededLines : [createWorkspaceLine()],
+        isOpen: true,
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        triggerLineIds: baseWorkspace.lines.map((line) => line.id),
+      });
       return {
         ...state,
-        workspace: {
-          ...state.workspace,
-          title: template.title,
-          updatedAt: nowIso(),
-          variables: seededVariables,
-          lines: seededLines.length > 0 ? seededLines : [createWorkspaceLine()],
-          isOpen: true,
-        },
+        workspace: recalculated.workspace,
       };
     }
 

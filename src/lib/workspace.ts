@@ -41,6 +41,10 @@ const BASE_SCOPE = {
   log2: Math.log2,
   exp: Math.exp,
 };
+const RESERVED_IDENTIFIERS = new Set<string>([
+  ...Object.keys(BASE_SCOPE),
+  'ans',
+]);
 
 function normalizeExpression(raw: string): string {
   return raw
@@ -100,6 +104,19 @@ export function evaluateWorkspaceExpression(
   } catch {
     return { ok: false, error: 'Invalid expression syntax.' };
   }
+}
+
+export function extractWorkspaceDependencies(sourceExpression: string): string[] {
+  const expression = normalizeExpression(sourceExpression);
+  if (!expression) return [];
+  const identifiers = expression.match(IDENTIFIER_REGEX) ?? [];
+  const unique = new Set<string>();
+  for (const identifier of identifiers) {
+    if (!RESERVED_IDENTIFIERS.has(identifier)) {
+      unique.add(identifier);
+    }
+  }
+  return [...unique];
 }
 
 export function isWorkspaceVariableName(name: string): boolean {

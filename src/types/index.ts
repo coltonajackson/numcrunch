@@ -34,6 +34,8 @@ export interface WorkspaceLine {
   expression: string;
   resultValue: number | null;
   resultDisplay: string;
+  dependencies: string[];
+  error: string | null;
   variableName: string;
   note: string;
   createdAt: string;
@@ -104,6 +106,7 @@ export type Action =
   | { type: 'UPDATE_WORKSPACE_LINE_NOTE'; lineId: string; note: string }
   | { type: 'UPDATE_WORKSPACE_LINE_VARIABLE_NAME'; lineId: string; variableName: string }
   | { type: 'EVALUATE_WORKSPACE_LINE'; lineId: string }
+  | { type: 'EVALUATE_ALL_WORKSPACE_LINES' }
   | { type: 'ASSIGN_WORKSPACE_VARIABLE_FROM_LINE'; lineId: string }
   | { type: 'SET_WORKSPACE_VARIABLE_VALUE'; variableId: string; value: number }
   | { type: 'REMOVE_WORKSPACE_VARIABLE'; variableId: string }
