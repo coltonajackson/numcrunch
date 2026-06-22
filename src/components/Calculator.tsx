@@ -5,6 +5,7 @@ import { BasicPad } from './BasicPad';
 import { ScientificPad } from './ScientificPad';
 import { ProgrammerPad } from './ProgrammerPad';
 import { HistoryPanel } from './HistoryPanel';
+import { WorkspacePanel } from './WorkspacePanel';
 import type { CalcMode, NotationMode } from '../types';
 
 const MODE_LABELS: Record<CalcMode, string> = {
@@ -122,6 +123,24 @@ export function Calculator() {
                 title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)"
               >
                 ↷
+              </button>
+              <button
+                onClick={() => dispatch({ type: 'TOGGLE_WORKSPACE' })}
+                style={{
+                  border: 'none',
+                  backgroundColor: state.workspace.isOpen ? '#64D2FF' : '#2C2C2E',
+                  color: state.workspace.isOpen ? '#000' : '#F2F2F7',
+                  borderRadius: 8,
+                  padding: '5px 8px',
+                  cursor: 'pointer',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                }}
+                aria-expanded={state.workspace.isOpen}
+                aria-label="Toggle workspace panel"
+              >
+                Workspace
               </button>
               <button
                 onClick={() => setIsHistoryOpen((v) => !v)}
@@ -260,6 +279,7 @@ export function Calculator() {
                       ['Redo (alt)', 'Ctrl/Cmd + Y'],
                       ['Clear', 'Ctrl/Cmd + L'],
                       ['History', 'Ctrl/Cmd + H'],
+                      ['Workspace', 'Ctrl/Cmd + J'],
                       ['Mode', 'Ctrl/Cmd + 1/2/3'],
                     ].map(([label, shortcut]) => (
                       <div key={label} className="flex justify-between gap-2 text-[11px]">
@@ -294,6 +314,7 @@ export function Calculator() {
         {/* Display */}
         <Display state={state} />
 
+        {state.workspace.isOpen && <WorkspacePanel state={state} dispatch={dispatch} />}
         {isHistoryOpen && <HistoryPanel state={state} dispatch={dispatch} />}
 
         {/* Backspace button row (above pad) */}

@@ -1,7 +1,20 @@
 import { useReducer, useEffect } from 'react';
-import type { CalcState, Action, NumBase, HistoryEntry, CalcMode } from '../types';
+import type {
+  CalcState,
+  Action,
+  NumBase,
+  HistoryEntry,
+  CalcMode,
+  WorkspaceLine,
+  WorkspaceVariable,
+} from '../types';
 import { applyBinaryOp, applyUnaryOp } from '../lib/calculator';
 import { evaluatePythonMathExpression } from '../lib/pythonMath';
+import {
+  evaluateWorkspaceExpression,
+  isWorkspaceVariableName,
+  WORKSPACE_TEMPLATES,
+} from '../lib/workspace';
 import {
   formatForDisplay,
   formatInBase,
@@ -32,6 +45,15 @@ const initialState: CalcState = {
     notation: 'auto',
   },
   history: [],
+  workspace: {
+    id: 'default-workspace',
+    title: 'Workspace',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    isOpen: false,
+    lines: [createWorkspaceLine()],
+    variables: [],
+  },
   isError: false,
 };
 
@@ -42,6 +64,39 @@ interface UndoHistoryState {
   past: CalcState[];
   present: CalcState;
   future: CalcState[];
+}
+
+function makeId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function createWorkspaceLine(partial?: Partial<WorkspaceLine>): WorkspaceLine {
+  const ts = nowIso();
+  return {
+    id: makeId('wline'),
+    expression: '',
+    resultValue: null,
+    resultDisplay: '',
+    variableName: '',
+    note: '',
+    createdAt: ts,
+    updatedAt: ts,
+    ...partial,
+  };
+}
+
+function createWorkspaceVariable(name: string, value: number, sourceLineId: string | null): WorkspaceVariable {
+  return {
+    id: makeId('wvar'),
+    name,
+    value,
+    sourceLineId,
+    updatedAt: nowIso(),
+  };
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -81,6 +136,37 @@ function buildHistoryEntry(state: CalcState, expression: string, result: number)
 function appendHistory(state: CalcState, expression: string, result: number): HistoryEntry[] {
   const entry = buildHistoryEntry(state, expression || 'Result', result);
   return [entry, ...state.history].slice(0, MAX_HISTORY_ENTRIES);
+}
+
+function fmtWorkspaceValue(value: number, state: CalcState): string {
+  return formatForDisplay(value, state.formatSettings);
+}
+
+function upsertWorkspaceVariable(
+  variables: WorkspaceVariable[],
+  name: string,
+  value: number,
+  sourceLineId: string | null,
+): WorkspaceVariable[] {
+  const existing = variables.find((item) => item.name === name);
+  if (!existing) {
+    return [createWorkspaceVariable(name, value, sourceLineId), ...variables];
+  }
+  return variables.map((item) => (item.id === existing.id
+    ? { ...item, value, sourceLineId, updatedAt: nowIso() }
+    : item));
+}
+
+function workspaceWithUpdatedLine(
+  state: CalcState,
+  lineId: string,
+  updater: (line: WorkspaceLine) => WorkspaceLine,
+) {
+  return {
+    ...state.workspace,
+    updatedAt: nowIso(),
+    lines: state.workspace.lines.map((line) => (line.id === lineId ? updater(line) : line)),
+  };
 }
 
 function applyPythonExpression(state: CalcState): CalcState {
@@ -339,6 +425,7 @@ function calcReducer(state: CalcState, action: Action): CalcState {
           bitWidth: state.bitWidth,
           formatSettings: state.formatSettings,
           history: state.history,
+          workspace: state.workspace,
           memory: state.memory,
         };
       }
@@ -428,6 +515,7 @@ function calcReducer(state: CalcState, action: Action): CalcState {
         bitWidth: state.bitWidth,
         formatSettings: state.formatSettings,
         history: state.history,
+        workspace: state.workspace,
         displayValue: newDisplay,
       };
     }
@@ -509,6 +597,184 @@ function calcReducer(state: CalcState, action: Action): CalcState {
         isError: false,
         replaceOnInput: true,
         hasDecimal: entry.resultValue !== Math.trunc(entry.resultValue),
+      };
+    }
+
+    case 'TOGGLE_WORKSPACE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          isOpen: !state.workspace.isOpen,
+          updatedAt: nowIso(),
+        },
+      };
+
+    case 'SET_WORKSPACE_TITLE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          title: action.title,
+          updatedAt: nowIso(),
+        },
+      };
+
+    case 'ADD_WORKSPACE_LINE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          updatedAt: nowIso(),
+          lines: [...state.workspace.lines, createWorkspaceLine()],
+        },
+      };
+
+    case 'REMOVE_WORKSPACE_LINE': {
+      if (state.workspace.lines.length <= 1) return state;
+      const remainingLines = state.workspace.lines.filter((line) => line.id !== action.lineId);
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          updatedAt: nowIso(),
+          lines: remainingLines,
+          variables: state.workspace.variables.filter((variable) => variable.sourceLineId !== action.lineId),
+        },
+      };
+    }
+
+    case 'UPDATE_WORKSPACE_LINE_EXPRESSION':
+      return {
+        ...state,
+        workspace: workspaceWithUpdatedLine(state, action.lineId, (line) => ({
+          ...line,
+          expression: action.expression,
+          updatedAt: nowIso(),
+        })),
+      };
+
+    case 'UPDATE_WORKSPACE_LINE_NOTE':
+      return {
+        ...state,
+        workspace: workspaceWithUpdatedLine(state, action.lineId, (line) => ({
+          ...line,
+          note: action.note,
+          updatedAt: nowIso(),
+        })),
+      };
+
+    case 'UPDATE_WORKSPACE_LINE_VARIABLE_NAME':
+      return {
+        ...state,
+        workspace: workspaceWithUpdatedLine(state, action.lineId, (line) => ({
+          ...line,
+          variableName: action.variableName,
+          updatedAt: nowIso(),
+        })),
+      };
+
+    case 'EVALUATE_WORKSPACE_LINE': {
+      const line = state.workspace.lines.find((item) => item.id === action.lineId);
+      if (!line) return state;
+      const ans = line.resultValue ?? getCurrentValue(state);
+      const evaluated = evaluateWorkspaceExpression(line.expression, state.workspace.variables, ans);
+      if (!evaluated.ok) {
+        return {
+          ...state,
+          displayValue: 'Error',
+          expression: evaluated.error,
+          isError: true,
+          replaceOnInput: true,
+        };
+      }
+
+      const evaluatedDisplay = fmtWorkspaceValue(evaluated.value, state);
+      let nextVariables = state.workspace.variables;
+      const trimmedVariableName = line.variableName.trim();
+      if (trimmedVariableName && isWorkspaceVariableName(trimmedVariableName)) {
+        nextVariables = upsertWorkspaceVariable(nextVariables, trimmedVariableName, evaluated.value, line.id);
+      }
+
+      return {
+        ...state,
+        displayValue: fmtDisplay(evaluated.value, state),
+        expression: `ws: ${line.expression}`,
+        isError: false,
+        replaceOnInput: true,
+        hasDecimal: evaluated.value !== Math.trunc(evaluated.value),
+        history: appendHistory(state, line.expression, evaluated.value),
+        workspace: {
+          ...workspaceWithUpdatedLine(state, line.id, (item) => ({
+            ...item,
+            resultValue: evaluated.value,
+            resultDisplay: evaluatedDisplay,
+            updatedAt: nowIso(),
+          })),
+          variables: nextVariables,
+          updatedAt: nowIso(),
+        },
+      };
+    }
+
+    case 'ASSIGN_WORKSPACE_VARIABLE_FROM_LINE': {
+      const line = state.workspace.lines.find((item) => item.id === action.lineId);
+      if (!line || line.resultValue === null) return state;
+      const name = line.variableName.trim();
+      if (!isWorkspaceVariableName(name)) return state;
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          updatedAt: nowIso(),
+          variables: upsertWorkspaceVariable(state.workspace.variables, name, line.resultValue, line.id),
+        },
+      };
+    }
+
+    case 'SET_WORKSPACE_VARIABLE_VALUE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          updatedAt: nowIso(),
+          variables: state.workspace.variables.map((variable) => (
+            variable.id === action.variableId
+              ? { ...variable, value: action.value, updatedAt: nowIso() }
+              : variable
+          )),
+        },
+      };
+
+    case 'REMOVE_WORKSPACE_VARIABLE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          updatedAt: nowIso(),
+          variables: state.workspace.variables.filter((variable) => variable.id !== action.variableId),
+        },
+      };
+
+    case 'APPLY_WORKSPACE_TEMPLATE': {
+      const template = WORKSPACE_TEMPLATES[action.template];
+      if (!template) return state;
+      const seededVariables = template.variables.map((seed) => createWorkspaceVariable(seed.name, seed.value, null));
+      const seededLines = template.lines.map((seed) => createWorkspaceLine({
+        expression: seed.expression,
+        variableName: seed.variableName ?? '',
+        note: seed.note ?? '',
+      }));
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          title: template.title,
+          updatedAt: nowIso(),
+          variables: seededVariables,
+          lines: seededLines.length > 0 ? seededLines : [createWorkspaceLine()],
+          isOpen: true,
+        },
       };
     }
 
@@ -624,6 +890,11 @@ export function useCalculator() {
         if (normalized === 'l') {
           e.preventDefault();
           dispatch({ type: 'PRESS_CLEAR' });
+          return;
+        }
+        if (normalized === 'j') {
+          e.preventDefault();
+          dispatch({ type: 'TOGGLE_WORKSPACE' });
           return;
         }
         const selectedMode = modeShortcut[key];
