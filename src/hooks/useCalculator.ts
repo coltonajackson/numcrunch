@@ -1,7 +1,21 @@
 import { useReducer, useEffect } from 'react';
-import type { CalcState, Action, NumBase } from '../types';
+import type {
+  CalcState,
+  Action,
+  NumBase,
+  HistoryEntry,
+  CalcMode,
+  WorkspaceLine,
+  WorkspaceVariable,
+} from '../types';
 import { applyBinaryOp, applyUnaryOp } from '../lib/calculator';
 import { evaluatePythonMathExpression } from '../lib/pythonMath';
+import {
+  evaluateWorkspaceExpression,
+  extractWorkspaceDependencies,
+  isWorkspaceVariableName,
+  WORKSPACE_TEMPLATES,
+} from '../lib/workspace';
 import {
   formatForDisplay,
   formatInBase,
@@ -27,8 +41,66 @@ const initialState: CalcState = {
   isSecondFn: false,
   numBase: 'dec',
   bitWidth: 32,
+  formatSettings: {
+    significantDigits: 10,
+    notation: 'auto',
+  },
+  history: [],
+  workspace: {
+    id: 'default-workspace',
+    title: 'Workspace',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    isOpen: false,
+    lines: [createWorkspaceLine()],
+    variables: [],
+  },
   isError: false,
 };
+
+const MAX_HISTORY_ENTRIES = 150;
+const MAX_UNDO_STEPS = 120;
+
+interface UndoHistoryState {
+  past: CalcState[];
+  present: CalcState;
+  future: CalcState[];
+}
+
+function makeId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function createWorkspaceLine(partial?: Partial<WorkspaceLine>): WorkspaceLine {
+  const ts = nowIso();
+  return {
+    id: makeId('wline'),
+    expression: '',
+    resultValue: null,
+    resultDisplay: '',
+    dependencies: [],
+    error: null,
+    variableName: '',
+    note: '',
+    createdAt: ts,
+    updatedAt: ts,
+    ...partial,
+  };
+}
+
+function createWorkspaceVariable(name: string, value: number, sourceLineId: string | null): WorkspaceVariable {
+  return {
+    id: makeId('wvar'),
+    name,
+    value,
+    sourceLineId,
+    updatedAt: nowIso(),
+  };
+}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -44,11 +116,231 @@ function fmtDisplay(value: number, state: CalcState): string {
   if (state.mode === 'programmer') {
     return formatInBase(value, state.numBase, state.bitWidth);
   }
-  return formatForDisplay(value);
+  return formatForDisplay(value, state.formatSettings);
 }
 
 function isResultBad(v: number) {
   return isNaN(v) || !isFinite(v);
+}
+
+function buildHistoryEntry(state: CalcState, expression: string, result: number): HistoryEntry {
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+    expression: expression.trim(),
+    resultValue: result,
+    resultDisplay: fmtDisplay(result, state),
+    mode: state.mode,
+    createdAt: new Date().toISOString(),
+    pinned: false,
+    note: '',
+  };
+}
+
+function appendHistory(state: CalcState, expression: string, result: number): HistoryEntry[] {
+  const entry = buildHistoryEntry(state, expression || 'Result', result);
+  return [entry, ...state.history].slice(0, MAX_HISTORY_ENTRIES);
+}
+
+function fmtWorkspaceValue(value: number, state: CalcState): string {
+  return formatForDisplay(value, state.formatSettings);
+}
+
+function upsertWorkspaceVariable(
+  variables: WorkspaceVariable[],
+  name: string,
+  value: number,
+  sourceLineId: string | null,
+): WorkspaceVariable[] {
+  const existing = variables.find((item) => item.name === name);
+  if (!existing) {
+    return [createWorkspaceVariable(name, value, sourceLineId), ...variables];
+  }
+  return variables.map((item) => (item.id === existing.id
+    ? { ...item, value, sourceLineId, updatedAt: nowIso() }
+    : item));
+}
+
+function workspaceWithUpdatedLine(
+  state: CalcState,
+  lineId: string,
+  updater: (line: WorkspaceLine) => WorkspaceLine,
+) {
+  return {
+    ...state.workspace,
+    updatedAt: nowIso(),
+    lines: state.workspace.lines.map((line) => (line.id === lineId ? updater(line) : line)),
+  };
+}
+
+interface WorkspaceRecalcOptions {
+  workspaceOverride?: CalcState['workspace'];
+  triggerLineIds?: string[];
+  changedVariableNames?: string[];
+  focusedLineId?: string;
+}
+
+interface WorkspaceRecalcResult {
+  workspace: CalcState['workspace'];
+  focusedLine: WorkspaceLine | null;
+  focusedLineError: string | null;
+}
+
+function variableSignature(variables: WorkspaceVariable[]): string {
+  return variables
+    .map((item) => `${item.name}:${item.value}:${item.sourceLineId ?? ''}`)
+    .sort()
+    .join('|');
+}
+
+function resolveImpactedWorkspaceLineIds(
+  lines: WorkspaceLine[],
+  triggerLineIds: Set<string>,
+  changedVariableNames: Set<string>,
+): Set<string> {
+  const impactedLineIds = new Set<string>(triggerLineIds);
+  const propagatedVariables = new Set<string>(changedVariableNames);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const line of lines) {
+      const assignedVariableName = line.variableName.trim();
+      if (impactedLineIds.has(line.id)) {
+        if (isWorkspaceVariableName(assignedVariableName) && !propagatedVariables.has(assignedVariableName)) {
+          propagatedVariables.add(assignedVariableName);
+          changed = true;
+        }
+        continue;
+      }
+
+      const dependencies = extractWorkspaceDependencies(line.expression);
+      if (dependencies.some((dependency) => propagatedVariables.has(dependency))) {
+        impactedLineIds.add(line.id);
+        changed = true;
+        if (isWorkspaceVariableName(assignedVariableName) && !propagatedVariables.has(assignedVariableName)) {
+          propagatedVariables.add(assignedVariableName);
+        }
+      }
+    }
+  }
+
+  return impactedLineIds;
+}
+
+function recalculateWorkspaceDependencies(
+  state: CalcState,
+  options: WorkspaceRecalcOptions,
+): WorkspaceRecalcResult {
+  const workspace = options.workspaceOverride ?? state.workspace;
+  const triggerLineIds = new Set(options.triggerLineIds ?? []);
+  const changedVariableNames = new Set(options.changedVariableNames ?? []);
+  const focusedLineId = options.focusedLineId ?? null;
+
+  if (triggerLineIds.size === 0 && changedVariableNames.size === 0) {
+    return { workspace, focusedLine: null, focusedLineError: null };
+  }
+
+  const impactedLineIds = resolveImpactedWorkspaceLineIds(workspace.lines, triggerLineIds, changedVariableNames);
+  if (impactedLineIds.size === 0) {
+    return { workspace, focusedLine: null, focusedLineError: null };
+  }
+
+  let workingLines = [...workspace.lines];
+  let workingVariables = [...workspace.variables];
+  let pass = 0;
+  let mutated = false;
+
+  while (pass < Math.max(2, impactedLineIds.size + 1)) {
+    pass += 1;
+    let passChanged = false;
+    const signatureBeforePass = variableSignature(workingVariables);
+
+    for (let index = 0; index < workingLines.length; index += 1) {
+      const line = workingLines[index];
+      if (!impactedLineIds.has(line.id)) continue;
+
+      const dependencies = extractWorkspaceDependencies(line.expression);
+      const evaluation = evaluateWorkspaceExpression(line.expression, workingVariables, line.resultValue);
+      let nextVariables = workingVariables.filter((item) => item.sourceLineId !== line.id);
+
+      let nextLine: WorkspaceLine;
+      if (evaluation.ok) {
+        const resultDisplay = fmtWorkspaceValue(evaluation.value, state);
+        const variableName = line.variableName.trim();
+        if (isWorkspaceVariableName(variableName)) {
+          nextVariables = upsertWorkspaceVariable(nextVariables, variableName, evaluation.value, line.id);
+        }
+
+        const changed =
+          line.resultValue !== evaluation.value ||
+          line.resultDisplay !== resultDisplay ||
+          line.error !== null ||
+          line.dependencies.join('|') !== dependencies.join('|');
+
+        nextLine = changed
+          ? {
+            ...line,
+            resultValue: evaluation.value,
+            resultDisplay,
+            dependencies,
+            error: null,
+            updatedAt: nowIso(),
+          }
+          : line;
+      } else {
+        const changed =
+          line.resultValue !== null ||
+          line.resultDisplay !== '' ||
+          line.error !== evaluation.error ||
+          line.dependencies.join('|') !== dependencies.join('|');
+        nextLine = changed
+          ? {
+            ...line,
+            resultValue: null,
+            resultDisplay: '',
+            dependencies,
+            error: evaluation.error,
+            updatedAt: nowIso(),
+          }
+          : line;
+      }
+
+      if (nextLine !== line) {
+        workingLines[index] = nextLine;
+        passChanged = true;
+      }
+
+      const signatureBeforeLineVariables = variableSignature(workingVariables);
+      const signatureAfterLineVariables = variableSignature(nextVariables);
+      if (signatureBeforeLineVariables !== signatureAfterLineVariables) {
+        passChanged = true;
+      }
+      workingVariables = nextVariables;
+    }
+
+    const signatureAfterPass = variableSignature(workingVariables);
+    if (!passChanged && signatureBeforePass === signatureAfterPass) {
+      break;
+    }
+    mutated = mutated || passChanged || signatureBeforePass !== signatureAfterPass;
+  }
+
+  const focusedLine = focusedLineId
+    ? workingLines.find((line) => line.id === focusedLineId) ?? null
+    : null;
+
+  return {
+    workspace: mutated
+      ? {
+        ...workspace,
+        lines: workingLines,
+        variables: workingVariables,
+        updatedAt: nowIso(),
+      }
+      : workspace,
+    focusedLine,
+    focusedLineError: focusedLine?.error ?? null,
+  };
 }
 
 function applyPythonExpression(state: CalcState): CalcState {
@@ -97,15 +389,19 @@ function applyPythonExpression(state: CalcState): CalcState {
     activeOp: null,
     replaceOnInput: true,
     hasDecimal: evaluated.value !== Math.trunc(evaluated.value),
+    history: appendHistory(state, state.pythonExpression.trim(), evaluated.value),
   };
 }
 
 // ─── reducer ────────────────────────────────────────────────────────────────
 
-function reducer(state: CalcState, action: Action): CalcState {
+function calcReducer(state: CalcState, action: Action): CalcState {
   const isPythonModeActive = state.mode === 'programmer' && state.pythonInputEnabled;
 
   switch (action.type) {
+    case 'UNDO':
+    case 'REDO':
+      return state;
 
     case 'PRESS_DIGIT': {
       if (isPythonModeActive) return state;
@@ -209,6 +505,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (state.pendingOp !== null && state.accumulator !== null) {
         const right = state.replaceOnInput ? state.accumulator : getCurrentValue(state);
         const result = applyBinaryOp(state.accumulator, state.pendingOp, right);
+        const historyExpression = `${fmtDisplay(state.accumulator, state)} ${state.pendingOp} ${fmtDisplay(right, state)}`;
 
         if (isResultBad(result)) {
           return { ...state, displayValue: 'Error', isError: true, accumulator: null, pendingOp: null, activeOp: null, expression: '' };
@@ -225,6 +522,7 @@ function reducer(state: CalcState, action: Action): CalcState {
           hasDecimal: false,
           activeOp: null,
           isSecondFn: false,
+          history: appendHistory(state, historyExpression, result),
         };
       }
 
@@ -232,6 +530,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (state.lastOp !== null && state.lastOperand !== null) {
         const cur = getCurrentValue(state);
         const result = applyBinaryOp(cur, state.lastOp, state.lastOperand);
+        const historyExpression = `${fmtDisplay(cur, state)} ${state.lastOp} ${fmtDisplay(state.lastOperand, state)}`;
         if (isResultBad(result)) {
           return { ...state, displayValue: 'Error', isError: true, activeOp: null, expression: '' };
         }
@@ -243,6 +542,7 @@ function reducer(state: CalcState, action: Action): CalcState {
           hasDecimal: false,
           activeOp: null,
           isSecondFn: false,
+          history: appendHistory(state, historyExpression, result),
         };
       }
 
@@ -254,6 +554,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (state.isError && action.op !== '+/-') return state;
       const value = getCurrentValue(state);
       const result = applyUnaryOp(value, action.op, state.angleMode);
+      const unaryExpression = `${action.op}(${fmtDisplay(value, state)})`;
 
       if (isResultBad(result)) {
         return { ...state, displayValue: 'Error', isError: true };
@@ -264,6 +565,7 @@ function reducer(state: CalcState, action: Action): CalcState {
         replaceOnInput: true,
         hasDecimal: result !== Math.trunc(result),
         isSecondFn: false,
+        history: appendHistory(state, unaryExpression, result),
       };
     }
 
@@ -295,6 +597,9 @@ function reducer(state: CalcState, action: Action): CalcState {
           angleMode: state.angleMode,
           numBase: state.numBase,
           bitWidth: state.bitWidth,
+          formatSettings: state.formatSettings,
+          history: state.history,
+          workspace: state.workspace,
           memory: state.memory,
         };
       }
@@ -346,7 +651,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       if (isPythonModeActive) return state;
       return {
         ...state,
-        displayValue: formatForDisplay(action.value),
+        displayValue: formatForDisplay(action.value, state.formatSettings),
         replaceOnInput: true,
         hasDecimal: action.value !== Math.trunc(action.value),
         isSecondFn: false,
@@ -374,7 +679,7 @@ function reducer(state: CalcState, action: Action): CalcState {
       const newDisplay =
         action.mode === 'programmer'
           ? formatInBase(Math.trunc(Math.abs(cur)), 'dec', state.bitWidth)
-          : formatForDisplay(cur);
+          : formatForDisplay(cur, state.formatSettings);
       return {
         ...initialState,
         mode: action.mode,
@@ -382,6 +687,9 @@ function reducer(state: CalcState, action: Action): CalcState {
         angleMode: state.angleMode,
         numBase: state.numBase,
         bitWidth: state.bitWidth,
+        formatSettings: state.formatSettings,
+        history: state.history,
+        workspace: state.workspace,
         displayValue: newDisplay,
       };
     }
@@ -406,6 +714,316 @@ function reducer(state: CalcState, action: Action): CalcState {
         ...state,
         bitWidth: action.width,
         displayValue: formatInBase(masked, state.numBase, action.width),
+      };
+    }
+
+    case 'SET_FORMAT_SIGNIFICANT_DIGITS': {
+      const digits = Math.min(15, Math.max(3, Math.trunc(action.digits)));
+      const formatSettings = { ...state.formatSettings, significantDigits: digits };
+      if (state.mode === 'programmer' || state.isError) {
+        return { ...state, formatSettings };
+      }
+      const cur = getCurrentValue(state);
+      return {
+        ...state,
+        formatSettings,
+        displayValue: formatForDisplay(cur, formatSettings),
+      };
+    }
+
+    case 'SET_FORMAT_NOTATION': {
+      const formatSettings = { ...state.formatSettings, notation: action.notation };
+      if (state.mode === 'programmer' || state.isError) {
+        return { ...state, formatSettings };
+      }
+      const cur = getCurrentValue(state);
+      return {
+        ...state,
+        formatSettings,
+        displayValue: formatForDisplay(cur, formatSettings),
+      };
+    }
+
+    case 'TOGGLE_HISTORY_PIN':
+      return {
+        ...state,
+        history: state.history.map((entry) =>
+          entry.id === action.id ? { ...entry, pinned: !entry.pinned } : entry),
+      };
+
+    case 'SET_HISTORY_NOTE':
+      return {
+        ...state,
+        history: state.history.map((entry) =>
+          entry.id === action.id ? { ...entry, note: action.note } : entry),
+      };
+
+    case 'CLEAR_HISTORY':
+      return { ...state, history: [] };
+
+    case 'RECALL_HISTORY_ENTRY': {
+      const entry = state.history.find((item) => item.id === action.id);
+      if (!entry) return state;
+      return {
+        ...state,
+        displayValue: fmtDisplay(entry.resultValue, state),
+        expression: `recalled: ${entry.expression}`,
+        isError: false,
+        replaceOnInput: true,
+        hasDecimal: entry.resultValue !== Math.trunc(entry.resultValue),
+      };
+    }
+
+    case 'TOGGLE_WORKSPACE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          isOpen: !state.workspace.isOpen,
+          updatedAt: nowIso(),
+        },
+      };
+
+    case 'SET_WORKSPACE_TITLE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          title: action.title,
+          updatedAt: nowIso(),
+        },
+      };
+
+    case 'ADD_WORKSPACE_LINE':
+      return {
+        ...state,
+        workspace: {
+          ...state.workspace,
+          updatedAt: nowIso(),
+          lines: [...state.workspace.lines, createWorkspaceLine()],
+        },
+      };
+
+    case 'REMOVE_WORKSPACE_LINE': {
+      if (state.workspace.lines.length <= 1) return state;
+      const removedLine = state.workspace.lines.find((line) => line.id === action.lineId);
+      const removedVariableNames = removedLine && isWorkspaceVariableName(removedLine.variableName.trim())
+        ? [removedLine.variableName.trim()]
+        : [];
+      const remainingLines = state.workspace.lines.filter((line) => line.id !== action.lineId);
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        lines: remainingLines,
+        variables: state.workspace.variables.filter((variable) => variable.sourceLineId !== action.lineId),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: removedVariableNames,
+      });
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+      };
+    }
+
+    case 'UPDATE_WORKSPACE_LINE_EXPRESSION':
+      return {
+        ...state,
+        workspace: workspaceWithUpdatedLine(state, action.lineId, (line) => ({
+          ...line,
+          expression: action.expression,
+          dependencies: extractWorkspaceDependencies(action.expression),
+          error: null,
+          updatedAt: nowIso(),
+        })),
+      };
+
+    case 'UPDATE_WORKSPACE_LINE_NOTE':
+      return {
+        ...state,
+        workspace: workspaceWithUpdatedLine(state, action.lineId, (line) => ({
+          ...line,
+          note: action.note,
+          updatedAt: nowIso(),
+        })),
+      };
+
+    case 'UPDATE_WORKSPACE_LINE_VARIABLE_NAME': {
+      const line = state.workspace.lines.find((item) => item.id === action.lineId);
+      if (!line) return state;
+      const previousName = line.variableName.trim();
+      const nextName = action.variableName.trim();
+      let nextVariables = state.workspace.variables.filter((variable) => variable.sourceLineId !== action.lineId);
+      if (line.resultValue !== null && isWorkspaceVariableName(nextName)) {
+        nextVariables = upsertWorkspaceVariable(nextVariables, nextName, line.resultValue, line.id);
+      }
+      const baseWorkspace = {
+        ...workspaceWithUpdatedLine(state, action.lineId, (item) => ({
+          ...item,
+          variableName: action.variableName,
+          updatedAt: nowIso(),
+        })),
+        variables: nextVariables,
+        updatedAt: nowIso(),
+      };
+      const changedNames = [previousName, nextName].filter(Boolean);
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: changedNames,
+      });
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+      };
+    }
+
+    case 'EVALUATE_WORKSPACE_LINE': {
+      const line = state.workspace.lines.find((item) => item.id === action.lineId);
+      if (!line) return state;
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        triggerLineIds: [line.id],
+        focusedLineId: line.id,
+      });
+      if (recalculated.focusedLineError) {
+        return {
+          ...state,
+          workspace: recalculated.workspace,
+          displayValue: 'Error',
+          expression: recalculated.focusedLineError,
+          isError: true,
+          replaceOnInput: true,
+        };
+      }
+
+      const focusedLine = recalculated.focusedLine;
+      if (!focusedLine || focusedLine.resultValue === null) {
+        return { ...state, workspace: recalculated.workspace };
+      }
+
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+        displayValue: fmtDisplay(focusedLine.resultValue, state),
+        expression: `ws: ${focusedLine.expression}`,
+        isError: false,
+        replaceOnInput: true,
+        hasDecimal: focusedLine.resultValue !== Math.trunc(focusedLine.resultValue),
+        history: appendHistory(state, focusedLine.expression, focusedLine.resultValue),
+      };
+    }
+
+    case 'EVALUATE_ALL_WORKSPACE_LINES': {
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        triggerLineIds: state.workspace.lines.map((line) => line.id),
+      });
+      const latestLine = [...recalculated.workspace.lines]
+        .reverse()
+        .find((line) => line.resultValue !== null && !line.error);
+      if (!latestLine || latestLine.resultValue === null) {
+        return {
+          ...state,
+          workspace: recalculated.workspace,
+          isError: false,
+        };
+      }
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+        displayValue: fmtDisplay(latestLine.resultValue, state),
+        expression: `ws: ${latestLine.expression}`,
+        isError: false,
+        replaceOnInput: true,
+        hasDecimal: latestLine.resultValue !== Math.trunc(latestLine.resultValue),
+      };
+    }
+
+    case 'ASSIGN_WORKSPACE_VARIABLE_FROM_LINE': {
+      const line = state.workspace.lines.find((item) => item.id === action.lineId);
+      if (!line || line.resultValue === null) return state;
+      const name = line.variableName.trim();
+      if (!isWorkspaceVariableName(name)) return state;
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        variables: upsertWorkspaceVariable(state.workspace.variables, name, line.resultValue, line.id),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: [name],
+      });
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+      };
+    }
+
+    case 'SET_WORKSPACE_VARIABLE_VALUE': {
+      const target = state.workspace.variables.find((item) => item.id === action.variableId);
+      if (!target || !Number.isFinite(action.value)) return state;
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        variables: state.workspace.variables.map((variable) => (
+          variable.id === action.variableId
+            ? { ...variable, value: action.value, updatedAt: nowIso() }
+            : variable
+        )),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: [target.name],
+      });
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+        isError: false,
+      };
+    }
+
+    case 'REMOVE_WORKSPACE_VARIABLE': {
+      const target = state.workspace.variables.find((variable) => variable.id === action.variableId);
+      if (!target) return state;
+      const baseWorkspace = {
+        ...state.workspace,
+        updatedAt: nowIso(),
+        variables: state.workspace.variables.filter((variable) => variable.id !== action.variableId),
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        changedVariableNames: [target.name],
+      });
+      return {
+        ...state,
+        workspace: recalculated.workspace,
+      };
+    }
+
+    case 'APPLY_WORKSPACE_TEMPLATE': {
+      const template = WORKSPACE_TEMPLATES[action.template];
+      if (!template) return state;
+      const seededVariables = template.variables.map((seed) => createWorkspaceVariable(seed.name, seed.value, null));
+      const seededLines = template.lines.map((seed) => createWorkspaceLine({
+        expression: seed.expression,
+        dependencies: extractWorkspaceDependencies(seed.expression),
+        variableName: seed.variableName ?? '',
+        note: seed.note ?? '',
+      }));
+      const baseWorkspace = {
+        ...state.workspace,
+        title: template.title,
+        updatedAt: nowIso(),
+        variables: seededVariables,
+        lines: seededLines.length > 0 ? seededLines : [createWorkspaceLine()],
+        isOpen: true,
+      };
+      const recalculated = recalculateWorkspaceDependencies(state, {
+        workspaceOverride: baseWorkspace,
+        triggerLineIds: baseWorkspace.lines.map((line) => line.id),
+      });
+      return {
+        ...state,
+        workspace: recalculated.workspace,
       };
     }
 
@@ -450,19 +1068,97 @@ function reducer(state: CalcState, action: Action): CalcState {
   }
 }
 
+function historyReducer(history: UndoHistoryState, action: Action): UndoHistoryState {
+  if (action.type === 'UNDO') {
+    if (history.past.length === 0) return history;
+    const [previous, ...remainingPast] = history.past;
+    return {
+      past: remainingPast,
+      present: previous,
+      future: [history.present, ...history.future].slice(0, MAX_UNDO_STEPS),
+    };
+  }
+
+  if (action.type === 'REDO') {
+    if (history.future.length === 0) return history;
+    const [nextPresent, ...remainingFuture] = history.future;
+    return {
+      past: [history.present, ...history.past].slice(0, MAX_UNDO_STEPS),
+      present: nextPresent,
+      future: remainingFuture,
+    };
+  }
+
+  const nextPresent = calcReducer(history.present, action);
+  if (nextPresent === history.present) return history;
+
+  return {
+    past: [history.present, ...history.past].slice(0, MAX_UNDO_STEPS),
+    present: nextPresent,
+    future: [],
+  };
+}
+
 // ─── public hook ────────────────────────────────────────────────────────────
 
 export function useCalculator() {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [historyState, dispatch] = useReducer(historyReducer, {
+    past: [],
+    present: initialState,
+    future: [],
+  });
+  const state = historyState.present;
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      const isEditableTarget = Boolean(
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable),
+      );
+      const key = e.key;
+      const normalized = key.toLowerCase();
+      const hasPrimaryModifier = (e.ctrlKey || e.metaKey) && !e.altKey;
+
+      if (hasPrimaryModifier && !isEditableTarget) {
+        const modeShortcut: Record<string, CalcMode> = {
+          '1': 'basic',
+          '2': 'scientific',
+          '3': 'programmer',
+        };
+
+        if (normalized === 'z') {
+          e.preventDefault();
+          dispatch({ type: e.shiftKey ? 'REDO' : 'UNDO' });
+          return;
+        }
+        if (normalized === 'y') {
+          e.preventDefault();
+          dispatch({ type: 'REDO' });
+          return;
+        }
+        if (normalized === 'l') {
+          e.preventDefault();
+          dispatch({ type: 'PRESS_CLEAR' });
+          return;
+        }
+        if (normalized === 'j') {
+          e.preventDefault();
+          dispatch({ type: 'TOGGLE_WORKSPACE' });
+          return;
+        }
+        const selectedMode = modeShortcut[key];
+        if (selectedMode) {
+          e.preventDefault();
+          dispatch({ type: 'SET_MODE', mode: selectedMode });
+          return;
+        }
+      }
+
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isEditableTarget) {
         return;
       }
-      const k = e.key;
+      const k = key;
 
       if (state.mode === 'programmer' && state.pythonInputEnabled) {
         if (k === 'Enter' || k === '=') {
@@ -515,5 +1211,10 @@ export function useCalculator() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [state.mode, state.numBase, state.pythonInputEnabled]);
 
-  return { state, dispatch };
+  return {
+    state,
+    dispatch,
+    canUndo: historyState.past.length > 0,
+    canRedo: historyState.future.length > 0,
+  };
 }
