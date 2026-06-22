@@ -1,13 +1,31 @@
+import { useEffect, useRef, useState } from 'react';
 import { useCalculator } from '../hooks/useCalculator';
-import { ModeBar } from './ModeBar';
 import { Display } from './Display';
 import { BasicPad } from './BasicPad';
 import { ScientificPad } from './ScientificPad';
 import { ProgrammerPad } from './ProgrammerPad';
 import type { CalcMode } from '../types';
 
+const MODE_LABELS: Record<CalcMode, string> = {
+  basic: 'Basic',
+  scientific: 'Scientific',
+  programmer: 'Programmer',
+};
+
 export function Calculator() {
   const { state, dispatch } = useCalculator();
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handlePointerDown(e: PointerEvent) {
+      if (!settingsRef.current?.contains(e.target as Node)) {
+        setIsModeMenuOpen(false);
+      }
+    }
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
 
   const maxWidth =
     state.mode === 'scientific' ? 760
@@ -27,11 +45,78 @@ export function Calculator() {
           boxShadow: '0 32px 80px rgba(0,0,0,0.9), 0 0 0 0.5px rgba(255,255,255,0.08)',
         }}
       >
-        {/* Mode switcher */}
-        <ModeBar
-          mode={state.mode}
-          onSelect={(m: CalcMode) => dispatch({ type: 'SET_MODE', mode: m })}
-        />
+        {/* Unified header with mode settings */}
+        <div ref={settingsRef} className="relative px-3 pt-3 pb-1">
+          <div
+            className="flex items-center justify-between rounded-xl px-3 py-2"
+            style={{ backgroundColor: '#1C1C1E' }}
+          >
+            <span
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: '#8E8E93', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+            >
+              Unified Calculator
+            </span>
+            <button
+              onClick={() => setIsModeMenuOpen((v) => !v)}
+              style={{
+                border: 'none',
+                backgroundColor: '#2C2C2E',
+                color: '#F2F2F7',
+                borderRadius: 8,
+                padding: '5px 10px',
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+              }}
+              aria-expanded={isModeMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Mode settings"
+            >
+              Mode: {MODE_LABELS[state.mode]} ▾
+            </button>
+          </div>
+
+          {isModeMenuOpen && (
+            <div
+              className="absolute right-3 left-3 mt-2 rounded-xl p-2 shadow-xl z-20"
+              style={{ backgroundColor: '#1C1C1E', border: '1px solid #2C2C2E' }}
+            >
+              <p
+                className="text-xs px-2 pb-1"
+                style={{ color: '#8E8E93', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+              >
+                Mode Settings
+              </p>
+              <div className="flex gap-1">
+                {(Object.keys(MODE_LABELS) as CalcMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      dispatch({ type: 'SET_MODE', mode });
+                      setIsModeMenuOpen(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      border: 'none',
+                      cursor: 'pointer',
+                      borderRadius: 8,
+                      padding: '7px 0',
+                      backgroundColor: state.mode === mode ? '#FF9F0A' : '#2C2C2E',
+                      color: state.mode === mode ? '#000' : '#D1D1D6',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                    }}
+                  >
+                    {MODE_LABELS[mode]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Angle mode / memory indicator strip */}
         {state.mode === 'scientific' && (
