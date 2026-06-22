@@ -8,7 +8,7 @@ interface ProgrammerPadProps {
 }
 
 export function ProgrammerPad({ state, dispatch }: ProgrammerPadProps) {
-  const { numBase, bitWidth, activeOp } = state;
+  const { numBase, bitWidth, activeOp, pythonInputEnabled, pythonExpression } = state;
   const isAC = state.displayValue === '0' || state.replaceOnInput || state.isError;
 
   const digit = (d: string) => dispatch({ type: 'PRESS_DIGIT', digit: d });
@@ -26,6 +26,7 @@ export function ProgrammerPad({ state, dispatch }: ProgrammerPadProps) {
     { id: 'bin', label: 'BIN' },
   ];
   const widths: BitWidth[] = [8, 16, 32, 64];
+  const evaluatePython = () => dispatch({ type: 'EVALUATE_PYTHON_EXPRESSION' });
 
   return (
     <div>
@@ -70,6 +71,74 @@ export function ProgrammerPad({ state, dispatch }: ProgrammerPadProps) {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Python expression input (programmer helper) */}
+      <div className="flex gap-2 px-3 mb-2">
+        <button
+          onClick={() => dispatch({ type: 'TOGGLE_PYTHON_INPUT' })}
+          style={{
+            borderRadius: 10,
+            border: 'none',
+            padding: '0 10px',
+            minHeight: 34,
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            cursor: 'pointer',
+            color: pythonInputEnabled ? '#000' : '#999',
+            backgroundColor: pythonInputEnabled ? '#64D2FF' : '#1C1C1E',
+          }}
+        >
+          PY
+        </button>
+
+        {pythonInputEnabled && (
+          <>
+            <input
+              value={pythonExpression}
+              onChange={(e) => dispatch({ type: 'SET_PYTHON_EXPRESSION', expression: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  evaluatePython();
+                }
+              }}
+              placeholder="math.sin(math.pi / 2) + math.sqrt(9)"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+              style={{
+                flex: 1,
+                borderRadius: 10,
+                border: '1px solid #2C2C2E',
+                minHeight: 34,
+                padding: '0 10px',
+                fontSize: '0.78rem',
+                fontFamily: "'SF Mono', 'Fira Code', monospace",
+                color: '#EEE',
+                backgroundColor: '#111',
+                outline: 'none',
+              }}
+            />
+            <button
+              onClick={evaluatePython}
+              style={{
+                borderRadius: 10,
+                border: 'none',
+                minHeight: 34,
+                padding: '0 10px',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                color: '#000',
+                backgroundColor: '#30D158',
+              }}
+            >
+              RUN
+            </button>
+          </>
+        )}
       </div>
 
       {/* ── 4-column button grid ───────────────────────────────────── */}
@@ -139,7 +208,11 @@ export function ProgrammerPad({ state, dispatch }: ProgrammerPadProps) {
         <CalcButton label="±" variant="special"
           onClick={() => dispatch({ type: 'PRESS_UNARY', op: '+/-' })}
         />
-        <CalcButton label="=" variant="operator" onClick={() => dispatch({ type: 'PRESS_EQUALS' })} />
+        <CalcButton
+          label="="
+          variant="operator"
+          onClick={() => dispatch({ type: pythonInputEnabled ? 'EVALUATE_PYTHON_EXPRESSION' : 'PRESS_EQUALS' })}
+        />
 
       </div>
     </div>

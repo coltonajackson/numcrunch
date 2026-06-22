@@ -1,6 +1,7 @@
 import { useReducer, useEffect } from 'react';
 import type { CalcState, Action, NumBase } from '../types';
 import { applyBinaryOp, applyUnaryOp } from '../lib/calculator';
+import { evaluatePythonMathExpression } from '../lib/pythonMath';
 import {
   formatForDisplay,
   formatInBase,
@@ -11,6 +12,8 @@ import {
 const initialState: CalcState = {
   displayValue: '0',
   expression: '',
+  pythonExpression: '',
+  pythonInputEnabled: false,
   accumulator: null,
   pendingOp: null,
   lastOperand: null,
@@ -48,12 +51,64 @@ function isResultBad(v: number) {
   return isNaN(v) || !isFinite(v);
 }
 
+function applyPythonExpression(state: CalcState): CalcState {
+  if (state.mode !== 'programmer' || !state.pythonInputEnabled) return state;
+
+  const evaluated = evaluatePythonMathExpression(state.pythonExpression);
+  if (!evaluated.ok) {
+    return {
+      ...state,
+      displayValue: 'Error',
+      expression: evaluated.error,
+      isError: true,
+      accumulator: null,
+      pendingOp: null,
+      lastOperand: null,
+      lastOp: null,
+      activeOp: null,
+      replaceOnInput: true,
+    };
+  }
+
+  if (isResultBad(evaluated.value)) {
+    return {
+      ...state,
+      displayValue: 'Error',
+      expression: 'Expression did not produce a valid number.',
+      isError: true,
+      accumulator: null,
+      pendingOp: null,
+      lastOperand: null,
+      lastOp: null,
+      activeOp: null,
+      replaceOnInput: true,
+    };
+  }
+
+  return {
+    ...state,
+    displayValue: fmtDisplay(evaluated.value, state),
+    expression: `py: ${state.pythonExpression.trim()}`,
+    isError: false,
+    accumulator: null,
+    pendingOp: null,
+    lastOperand: null,
+    lastOp: null,
+    activeOp: null,
+    replaceOnInput: true,
+    hasDecimal: evaluated.value !== Math.trunc(evaluated.value),
+  };
+}
+
 // ─── reducer ────────────────────────────────────────────────────────────────
 
 function reducer(state: CalcState, action: Action): CalcState {
+  const isPythonModeActive = state.mode === 'programmer' && state.pythonInputEnabled;
+
   switch (action.type) {
 
     case 'PRESS_DIGIT': {
+      if (isPythonModeActive) return state;
       if (state.isError) return state;
       const d = action.digit.toUpperCase();
 
@@ -87,6 +142,7 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_DECIMAL': {
+      if (isPythonModeActive) return state;
       if (state.mode === 'programmer') return state;
       if (state.isError) return state;
       if (state.hasDecimal || state.displayValue.includes('.')) return state;
@@ -98,6 +154,7 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_OPERATOR': {
+      if (isPythonModeActive) return state;
       if (state.isError) return state;
       const { op } = action;
       const cur = getCurrentValue(state);
@@ -145,6 +202,7 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_EQUALS': {
+      if (isPythonModeActive) return applyPythonExpression(state);
       if (state.isError) return state;
 
       // Complete pending binary operation
@@ -192,6 +250,7 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_UNARY': {
+      if (isPythonModeActive) return state;
       if (state.isError && action.op !== '+/-') return state;
       const value = getCurrentValue(state);
       const result = applyUnaryOp(value, action.op, state.angleMode);
@@ -209,6 +268,24 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_CLEAR': {
+      if (isPythonModeActive) {
+        if (state.pythonExpression.length === 0 && !state.isError) return state;
+        return {
+          ...state,
+          displayValue: '0',
+          expression: '',
+          pythonExpression: '',
+          accumulator: null,
+          pendingOp: null,
+          lastOperand: null,
+          lastOp: null,
+          activeOp: null,
+          replaceOnInput: true,
+          hasDecimal: false,
+          isError: false,
+        };
+      }
+
       // If already at 0 / error / just got result → full AC reset
       const fullReset = state.displayValue === '0' || state.replaceOnInput || state.isError;
       if (fullReset) {
@@ -226,6 +303,15 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_BACKSPACE': {
+      if (isPythonModeActive) {
+        if (state.pythonExpression.length === 0) return state;
+        return {
+          ...state,
+          pythonExpression: state.pythonExpression.slice(0, -1),
+          isError: false,
+          expression: '',
+        };
+      }
       if (state.isError) return { ...state, displayValue: '0', isError: false };
       if (state.replaceOnInput) return state;
       if (state.displayValue.length <= 1 || state.displayValue === '-0') {
@@ -240,6 +326,7 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_MEMORY': {
+      if (isPythonModeActive) return state;
       const cur = getCurrentValue(state);
       switch (action.op) {
         case 'mc': return { ...state, memory: 0 };
@@ -256,6 +343,7 @@ function reducer(state: CalcState, action: Action): CalcState {
     }
 
     case 'PRESS_CONSTANT': {
+      if (isPythonModeActive) return state;
       return {
         ...state,
         displayValue: formatForDisplay(action.value),
@@ -327,6 +415,36 @@ function reducer(state: CalcState, action: Action): CalcState {
     case 'TOGGLE_SECOND_FN':
       return { ...state, isSecondFn: !state.isSecondFn };
 
+    case 'TOGGLE_PYTHON_INPUT': {
+      if (state.mode !== 'programmer') return state;
+      const enabled = !state.pythonInputEnabled;
+      return {
+        ...state,
+        pythonInputEnabled: enabled,
+        pythonExpression: enabled ? (state.pythonExpression || 'math.') : state.pythonExpression,
+        expression: '',
+        isError: false,
+        accumulator: null,
+        pendingOp: null,
+        lastOperand: null,
+        lastOp: null,
+        activeOp: null,
+        replaceOnInput: true,
+      };
+    }
+
+    case 'SET_PYTHON_EXPRESSION':
+      if (state.mode !== 'programmer') return state;
+      return {
+        ...state,
+        pythonExpression: action.expression,
+        expression: '',
+        isError: false,
+      };
+
+    case 'EVALUATE_PYTHON_EXPRESSION':
+      return applyPythonExpression(state);
+
     default:
       return state;
   }
@@ -340,7 +458,22 @@ export function useCalculator() {
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
       const k = e.key;
+
+      if (state.mode === 'programmer' && state.pythonInputEnabled) {
+        if (k === 'Enter' || k === '=') {
+          e.preventDefault();
+          dispatch({ type: 'EVALUATE_PYTHON_EXPRESSION' });
+        } else if (k === 'Escape') {
+          e.preventDefault();
+          dispatch({ type: 'PRESS_CLEAR' });
+        }
+        return;
+      }
 
       if (/^[0-9]$/.test(k)) {
         e.preventDefault();
@@ -380,7 +513,7 @@ export function useCalculator() {
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [state.mode, state.numBase]);
+  }, [state.mode, state.numBase, state.pythonInputEnabled]);
 
   return { state, dispatch };
 }
