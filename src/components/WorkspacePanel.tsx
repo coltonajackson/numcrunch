@@ -1,9 +1,10 @@
+import { useEffect, useRef, useState, type Dispatch } from 'react';
 import type { Action, CalcState, WorkspaceTemplate } from '../types';
 import { WorkspaceDependencySidebar } from './WorkspaceDependencySidebar';
 
 interface WorkspacePanelProps {
   state: CalcState;
-  dispatch: React.Dispatch<Action>;
+  dispatch: Dispatch<Action>;
 }
 
 const TEMPLATE_LABELS: Record<WorkspaceTemplate, string> = {
@@ -14,6 +15,21 @@ const TEMPLATE_LABELS: Record<WorkspaceTemplate, string> = {
 
 export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
   const { workspace } = state;
+  const [selectedGraphLineId, setSelectedGraphLineId] = useState<string | null>(null);
+  const lineRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    if (!selectedGraphLineId) return;
+    if (!workspace.lines.some((line) => line.id === selectedGraphLineId)) {
+      setSelectedGraphLineId(null);
+    }
+  }, [workspace.lines, selectedGraphLineId]);
+
+  function focusWorkspaceLine(lineId: string) {
+    setSelectedGraphLineId(lineId);
+    const element = lineRefs.current[lineId];
+    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   return (
     <div className="px-3 pb-2">
@@ -96,7 +112,17 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
           <div>
             <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
               {workspace.lines.map((line, index) => (
-                <div key={line.id} className="rounded-lg p-2" style={{ backgroundColor: '#1C1C1E' }}>
+                <div
+                  key={line.id}
+                  ref={(element) => {
+                    lineRefs.current[line.id] = element;
+                  }}
+                  className="rounded-lg p-2"
+                  style={{
+                    backgroundColor: selectedGraphLineId === line.id ? '#252533' : '#1C1C1E',
+                    border: `1px solid ${selectedGraphLineId === line.id ? '#64D2FF' : 'transparent'}`,
+                  }}
+                >
                   <div className="flex items-center gap-2">
                     <span className="text-xs w-5 shrink-0 text-center" style={{ color: '#777' }}>
                       {index + 1}
@@ -307,7 +333,11 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
             </div>
           </div>
 
-          <WorkspaceDependencySidebar workspace={workspace} />
+          <WorkspaceDependencySidebar
+            workspace={workspace}
+            selectedLineId={selectedGraphLineId}
+            onSelectLine={focusWorkspaceLine}
+          />
         </div>
       </div>
     </div>

@@ -4,13 +4,19 @@ import { buildWorkspaceDependencyGraph } from '../lib/workspace';
 
 interface WorkspaceDependencySidebarProps {
   workspace: WorkspaceDocument;
+  selectedLineId?: string | null;
+  onSelectLine?: (lineId: string) => void;
 }
 
 function labelForLineIndex(index: number): string {
   return `L${index + 1}`;
 }
 
-export function WorkspaceDependencySidebar({ workspace }: WorkspaceDependencySidebarProps) {
+export function WorkspaceDependencySidebar({
+  workspace,
+  selectedLineId = null,
+  onSelectLine,
+}: WorkspaceDependencySidebarProps) {
   const graph = useMemo(
     () => buildWorkspaceDependencyGraph(workspace.lines, workspace.variables),
     [workspace.lines, workspace.variables],
@@ -68,8 +74,23 @@ export function WorkspaceDependencySidebar({ workspace }: WorkspaceDependencySid
       </div>
 
       <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
-        {graph.nodes.map((node) => (
-          <div key={node.lineId} className="rounded-lg p-2" style={{ backgroundColor: '#111' }}>
+        {graph.nodes.map((node) => {
+          const isSelected = selectedLineId === node.lineId;
+          return (
+            <button
+              key={node.lineId}
+              type="button"
+              onClick={() => onSelectLine?.(node.lineId)}
+              className="rounded-lg p-2 w-full text-left"
+              style={{
+                backgroundColor: isSelected ? '#252533' : '#111',
+                border: `1px solid ${isSelected ? '#64D2FF' : '#2C2C2E'}`,
+                cursor: onSelectLine ? 'pointer' : 'default',
+              }}
+              aria-pressed={isSelected}
+              aria-label={`Focus ${labelForLineIndex(node.lineIndex)}`}
+              title={`Focus ${labelForLineIndex(node.lineIndex)} in workspace`}
+            >
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold" style={{ color: '#E5E5EA' }}>
                 {labelForLineIndex(node.lineIndex)}
@@ -131,8 +152,9 @@ export function WorkspaceDependencySidebar({ workspace }: WorkspaceDependencySid
                 cycle member
               </p>
             )}
-          </div>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </aside>
   );
