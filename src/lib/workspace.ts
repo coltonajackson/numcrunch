@@ -90,7 +90,7 @@ export function evaluateWorkspaceExpression(
   try {
     const jsExpression = expression.replace(IDENTIFIER_REGEX, (id) => `scope.${id}`);
     const evaluator = new Function('scope', `"use strict"; return (${jsExpression});`) as (
-      scope: typeof scope,
+      scope: Record<string, unknown>,
     ) => unknown;
     const result = evaluator(scope);
     if (typeof result !== 'number' || !Number.isFinite(result) || Number.isNaN(result)) {
