@@ -104,13 +104,13 @@ export function HistoryPanel({ state, dispatch }: HistoryPanelProps) {
                   <div className="min-w-0">
                     <p
                       className="text-xs truncate"
-                      style={{ color: '#8E8E93', fontFamily: "'SF Mono', 'Fira Code', monospace" }}
+                      style={{ color: '#8E8E93', fontFamily: 'var(--app-font-mono)' }}
                     >
                       {entry.expression}
                     </p>
                     <p
                       className="text-base truncate"
-                      style={{ color: '#FFF', fontWeight: 500, fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+                      style={{ color: '#FFF', fontWeight: 500, fontFamily: 'var(--app-font-display)' }}
                     >
                       {entry.resultDisplay}
                     </p>

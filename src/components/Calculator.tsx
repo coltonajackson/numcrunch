@@ -6,7 +6,13 @@ import { ScientificPad } from './ScientificPad';
 import { ProgrammerPad } from './ProgrammerPad';
 import { HistoryPanel } from './HistoryPanel';
 import { WorkspacePanel } from './WorkspacePanel';
-import type { CalcMode, NotationMode } from '../types';
+import {
+  ACCENT_PRESET_LABELS,
+  buildAppearanceCssVariables,
+  FONT_PRESET_LABELS,
+  THEME_PRESET_LABELS,
+} from '../lib/appearance';
+import type { AccentPreset, CalcMode, FontPreset, NotationMode, ThemePreset } from '../types';
 
 const MODE_LABELS: Record<CalcMode, string> = {
   basic: 'Basic',
@@ -59,17 +65,27 @@ export function Calculator() {
     state.mode === 'scientific' ? 760
     : state.mode === 'programmer' ? 520
     : 340;
+  const appearanceVars = buildAppearanceCssVariables(
+    state.appearance.theme,
+    state.appearance.accent,
+    state.appearance.font,
+  ) as Record<`--${string}`, string>;
 
   return (
     <div
       className="flex items-center justify-center min-h-screen"
-      style={{ backgroundColor: '#000' }}
+      style={{
+        ...appearanceVars,
+        backgroundColor: 'var(--app-bg)',
+        color: 'var(--app-text)',
+        fontFamily: 'var(--app-font-display)',
+      }}
     >
       <div
         className="w-full rounded-3xl overflow-hidden shadow-2xl"
         style={{
           maxWidth,
-          backgroundColor: '#000',
+          backgroundColor: 'var(--app-card-bg)',
           boxShadow: '0 32px 80px rgba(0,0,0,0.9), 0 0 0 0.5px rgba(255,255,255,0.08)',
         }}
       >
@@ -77,11 +93,11 @@ export function Calculator() {
         <div ref={settingsRef} className="relative px-3 pt-3 pb-1">
           <div
             className="flex items-center justify-between rounded-xl px-3 py-2"
-            style={{ backgroundColor: '#1C1C1E' }}
+            style={{ backgroundColor: 'var(--app-panel-bg)' }}
           >
             <span
               className="text-xs font-semibold uppercase tracking-wider"
-              style={{ color: '#8E8E93', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+              style={{ color: 'var(--app-muted)', fontFamily: 'var(--app-font-display)' }}
             >
               Unified Calculator
             </span>
@@ -91,14 +107,14 @@ export function Calculator() {
                 disabled={!canUndo}
                 style={{
                   border: 'none',
-                  backgroundColor: canUndo ? '#2C2C2E' : '#1A1A1A',
-                  color: canUndo ? '#F2F2F7' : '#6A6A6A',
+                  backgroundColor: canUndo ? 'var(--app-panel-alt-bg)' : 'var(--app-dim-bg)',
+                  color: canUndo ? 'var(--app-text)' : 'var(--app-dim-text)',
                   borderRadius: 8,
                   padding: '5px 7px',
                   cursor: canUndo ? 'pointer' : 'not-allowed',
                   fontSize: '0.72rem',
                   fontWeight: 700,
-                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                  fontFamily: 'var(--app-font-display)',
                 }}
                 aria-label="Undo"
                 title="Undo (Ctrl/Cmd+Z)"
@@ -110,14 +126,14 @@ export function Calculator() {
                 disabled={!canRedo}
                 style={{
                   border: 'none',
-                  backgroundColor: canRedo ? '#2C2C2E' : '#1A1A1A',
-                  color: canRedo ? '#F2F2F7' : '#6A6A6A',
+                  backgroundColor: canRedo ? 'var(--app-panel-alt-bg)' : 'var(--app-dim-bg)',
+                  color: canRedo ? 'var(--app-text)' : 'var(--app-dim-text)',
                   borderRadius: 8,
                   padding: '5px 7px',
                   cursor: canRedo ? 'pointer' : 'not-allowed',
                   fontSize: '0.72rem',
                   fontWeight: 700,
-                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                  fontFamily: 'var(--app-font-display)',
                 }}
                 aria-label="Redo"
                 title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)"
@@ -128,14 +144,14 @@ export function Calculator() {
                 onClick={() => dispatch({ type: 'TOGGLE_WORKSPACE' })}
                 style={{
                   border: 'none',
-                  backgroundColor: state.workspace.isOpen ? '#64D2FF' : '#2C2C2E',
-                  color: state.workspace.isOpen ? '#000' : '#F2F2F7',
+                  backgroundColor: state.workspace.isOpen ? 'var(--app-operator-bg)' : 'var(--app-panel-alt-bg)',
+                  color: state.workspace.isOpen ? 'var(--app-operator-text)' : 'var(--app-text)',
                   borderRadius: 8,
                   padding: '5px 8px',
                   cursor: 'pointer',
                   fontSize: '0.72rem',
                   fontWeight: 700,
-                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                  fontFamily: 'var(--app-font-display)',
                 }}
                 aria-expanded={state.workspace.isOpen}
                 aria-label="Toggle workspace panel"
@@ -146,14 +162,14 @@ export function Calculator() {
                 onClick={() => setIsHistoryOpen((v) => !v)}
                 style={{
                   border: 'none',
-                  backgroundColor: isHistoryOpen ? '#30D158' : '#2C2C2E',
-                  color: isHistoryOpen ? '#000' : '#F2F2F7',
+                  backgroundColor: isHistoryOpen ? 'var(--app-accent-text)' : 'var(--app-panel-alt-bg)',
+                  color: isHistoryOpen ? 'var(--app-accent-bg)' : 'var(--app-text)',
                   borderRadius: 8,
                   padding: '5px 8px',
                   cursor: 'pointer',
                   fontSize: '0.72rem',
                   fontWeight: 700,
-                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                  fontFamily: 'var(--app-font-display)',
                 }}
                 aria-expanded={isHistoryOpen}
                 aria-label="Toggle history panel"
@@ -164,14 +180,14 @@ export function Calculator() {
                 onClick={() => setIsModeMenuOpen((v) => !v)}
                 style={{
                   border: 'none',
-                  backgroundColor: '#2C2C2E',
-                  color: '#F2F2F7',
+                  backgroundColor: 'var(--app-panel-alt-bg)',
+                  color: 'var(--app-text)',
                   borderRadius: 8,
                   padding: '5px 10px',
                   cursor: 'pointer',
                   fontSize: '0.75rem',
                   fontWeight: 600,
-                  fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                  fontFamily: 'var(--app-font-display)',
                 }}
                 aria-expanded={isModeMenuOpen}
                 aria-haspopup="menu"
@@ -185,11 +201,11 @@ export function Calculator() {
           {isModeMenuOpen && (
             <div
               className="absolute right-3 left-3 mt-2 rounded-xl p-2 shadow-xl z-20"
-              style={{ backgroundColor: '#1C1C1E', border: '1px solid #2C2C2E' }}
+              style={{ backgroundColor: 'var(--app-panel-bg)', border: '1px solid var(--app-border)' }}
             >
               <p
                 className="text-xs px-2 pb-1"
-                style={{ color: '#8E8E93', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+                style={{ color: 'var(--app-muted)', fontFamily: 'var(--app-font-display)' }}
               >
                 Mode Settings
               </p>
@@ -207,11 +223,11 @@ export function Calculator() {
                       cursor: 'pointer',
                       borderRadius: 8,
                       padding: '7px 0',
-                      backgroundColor: state.mode === mode ? '#FF9F0A' : '#2C2C2E',
-                      color: state.mode === mode ? '#000' : '#D1D1D6',
+                      backgroundColor: state.mode === mode ? 'var(--app-operator-bg)' : 'var(--app-panel-alt-bg)',
+                      color: state.mode === mode ? 'var(--app-operator-text)' : 'var(--app-text)',
                       fontSize: '0.75rem',
                       fontWeight: 700,
-                      fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                      fontFamily: 'var(--app-font-display)',
                     }}
                   >
                     {MODE_LABELS[mode]}
@@ -219,15 +235,15 @@ export function Calculator() {
                 ))}
               </div>
 
-              <div className="mt-2 pt-2" style={{ borderTop: '1px solid #2C2C2E' }}>
+              <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--app-border)' }}>
                 <p
                   className="text-xs px-2 pb-1"
-                  style={{ color: '#8E8E93', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+                  style={{ color: 'var(--app-muted)', fontFamily: 'var(--app-font-display)' }}
                 >
                   Result Formatting
                 </p>
                 <div className="flex items-center gap-2 px-1">
-                  <label className="text-[11px]" style={{ color: '#A1A1A6' }}>
+                  <label className="text-[11px]" style={{ color: 'var(--app-muted)' }}>
                     Digits
                   </label>
                   <input
@@ -239,7 +255,7 @@ export function Calculator() {
                     onChange={(e) => dispatch({ type: 'SET_FORMAT_SIGNIFICANT_DIGITS', digits: Number(e.target.value) })}
                     style={{ flex: 1 }}
                   />
-                  <span className="text-xs w-5 text-right" style={{ color: '#E5E5EA' }}>
+                  <span className="text-xs w-5 text-right" style={{ color: 'var(--app-text)' }}>
                     {state.formatSettings.significantDigits}
                   </span>
                 </div>
@@ -253,11 +269,11 @@ export function Calculator() {
                         borderRadius: 8,
                         padding: '6px 0',
                         cursor: 'pointer',
-                        backgroundColor: state.formatSettings.notation === notation ? '#64D2FF' : '#2C2C2E',
-                        color: state.formatSettings.notation === notation ? '#000' : '#D1D1D6',
+                        backgroundColor: state.formatSettings.notation === notation ? 'var(--app-operator-bg)' : 'var(--app-panel-alt-bg)',
+                        color: state.formatSettings.notation === notation ? 'var(--app-operator-text)' : 'var(--app-text)',
                         fontSize: '0.72rem',
                         fontWeight: 700,
-                        fontFamily: "'SF Pro Display', -apple-system, sans-serif",
+                        fontFamily: 'var(--app-font-display)',
                       }}
                     >
                       {NOTATION_LABELS[notation]}
@@ -265,10 +281,79 @@ export function Calculator() {
                   ))}
                 </div>
 
-                <div className="mt-2 pt-2" style={{ borderTop: '1px solid #2C2C2E' }}>
+                <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--app-border)' }}>
                   <p
                     className="text-xs px-2 pb-1"
-                    style={{ color: '#8E8E93', fontFamily: "'SF Pro Display', -apple-system, sans-serif" }}
+                    style={{ color: 'var(--app-muted)', fontFamily: 'var(--app-font-display)' }}
+                  >
+                    Appearance
+                  </p>
+                  <div className="flex flex-wrap gap-1 px-1">
+                    {(Object.keys(THEME_PRESET_LABELS) as ThemePreset[]).map((theme) => (
+                      <button
+                        key={theme}
+                        onClick={() => dispatch({ type: 'SET_THEME_PRESET', theme })}
+                        style={{
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          fontFamily: 'var(--app-font-display)',
+                          backgroundColor: state.appearance.theme === theme ? 'var(--app-operator-bg)' : 'var(--app-panel-alt-bg)',
+                          color: state.appearance.theme === theme ? 'var(--app-operator-text)' : 'var(--app-text)',
+                        }}
+                      >
+                        {THEME_PRESET_LABELS[theme]}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-1 px-1 mt-1.5">
+                    {(Object.keys(ACCENT_PRESET_LABELS) as AccentPreset[]).map((accent) => (
+                      <button
+                        key={accent}
+                        onClick={() => dispatch({ type: 'SET_ACCENT_PRESET', accent })}
+                        style={{
+                          border: state.appearance.accent === accent ? '2px solid var(--app-text)' : '1px solid var(--app-border)',
+                          borderRadius: 999,
+                          width: 20,
+                          height: 20,
+                          cursor: 'pointer',
+                          backgroundColor: buildAppearanceCssVariables(state.appearance.theme, accent, state.appearance.font)['--app-operator-bg'],
+                        }}
+                        aria-label={ACCENT_PRESET_LABELS[accent]}
+                        title={ACCENT_PRESET_LABELS[accent]}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-1 px-1 mt-1.5">
+                    {(Object.keys(FONT_PRESET_LABELS) as FontPreset[]).map((font) => (
+                      <button
+                        key={font}
+                        onClick={() => dispatch({ type: 'SET_FONT_PRESET', font })}
+                        style={{
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '4px 8px',
+                          cursor: 'pointer',
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          fontFamily: 'var(--app-font-display)',
+                          backgroundColor: state.appearance.font === font ? 'var(--app-operator-bg)' : 'var(--app-panel-alt-bg)',
+                          color: state.appearance.font === font ? 'var(--app-operator-text)' : 'var(--app-text)',
+                        }}
+                      >
+                        {FONT_PRESET_LABELS[font]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--app-border)' }}>
+                  <p
+                    className="text-xs px-2 pb-1"
+                    style={{ color: 'var(--app-muted)', fontFamily: 'var(--app-font-display)' }}
                   >
                     Keyboard Shortcuts
                   </p>
@@ -283,8 +368,8 @@ export function Calculator() {
                       ['Mode', 'Ctrl/Cmd + 1/2/3'],
                     ].map(([label, shortcut]) => (
                       <div key={label} className="flex justify-between gap-2 text-[11px]">
-                        <span style={{ color: '#A1A1A6' }}>{label}</span>
-                        <span style={{ color: '#D1D1D6', fontFamily: "'SF Mono', 'Fira Code', monospace" }}>{shortcut}</span>
+                        <span style={{ color: 'var(--app-muted)' }}>{label}</span>
+                        <span style={{ color: 'var(--app-text)', fontFamily: 'var(--app-font-mono)' }}>{shortcut}</span>
                       </div>
                     ))}
                   </div>
@@ -299,12 +384,12 @@ export function Calculator() {
           <div className="flex justify-between px-4 pt-1 pb-0">
             <span
               className="text-xs font-medium"
-              style={{ color: state.angleMode === 'rad' ? '#FF9F0A' : '#555' }}
+              style={{ color: state.angleMode === 'rad' ? 'var(--app-operator-bg)' : 'var(--app-muted)' }}
             >
               {state.angleMode.toUpperCase()}
             </span>
             {state.memory !== 0 && (
-              <span className="text-xs font-medium" style={{ color: '#30D158' }}>
+              <span className="text-xs font-medium" style={{ color: 'var(--app-accent-text)' }}>
                 M
               </span>
             )}
@@ -322,12 +407,13 @@ export function Calculator() {
           <button
             onClick={() => dispatch({ type: 'PRESS_BACKSPACE' })}
             style={{
-              color: '#888',
+              color: 'var(--app-muted)',
               background: 'none',
               border: 'none',
               cursor: 'pointer',
               padding: '2px 6px',
               fontSize: '1.1rem',
+              fontFamily: 'var(--app-font-display)',
             }}
             title="Backspace (⌫)"
           >
@@ -341,7 +427,7 @@ export function Calculator() {
         {state.mode === 'programmer' && <ProgrammerPad state={state} dispatch={dispatch} />}
 
         {/* Keyboard hint */}
-        <p className="text-center text-xs pb-2 pt-0" style={{ color: '#2C2C2E' }}>
+        <p className="text-center text-xs pb-2 pt-0" style={{ color: 'var(--app-muted)', fontFamily: 'var(--app-font-display)' }}>
           Keyboard supported · Esc = clear · Ctrl/Cmd+Z = undo
         </p>
       </div>

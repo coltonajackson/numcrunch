@@ -151,7 +151,7 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
                         minHeight: 30,
                         padding: '0 10px',
                         fontSize: '0.78rem',
-                        fontFamily: "'SF Mono', 'Fira Code', monospace",
+                        fontFamily: 'var(--app-font-mono)',
                         outline: 'none',
                       }}
                     />
@@ -192,7 +192,7 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
                     <span className="text-[11px] w-10" style={{ color: '#8E8E93' }}>Result</span>
                     <span
                       className="text-sm truncate flex-1"
-                      style={{ color: line.resultDisplay ? '#FFF' : '#6E6E73', fontFamily: "'SF Mono', 'Fira Code', monospace" }}
+                      style={{ color: line.resultDisplay ? '#FFF' : '#6E6E73', fontFamily: 'var(--app-font-mono)' }}
                     >
                       {line.resultDisplay || '—'}
                     </span>
@@ -228,7 +228,7 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
                         padding: '0 8px',
                         fontSize: '0.7rem',
                         outline: 'none',
-                        fontFamily: "'SF Mono', 'Fira Code', monospace",
+                        fontFamily: 'var(--app-font-mono)',
                       }}
                     />
                     <button
@@ -282,7 +282,7 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
                     <div key={variable.id} className="flex items-center gap-2">
                       <span
                         className="text-[11px] w-24 truncate"
-                        style={{ color: '#D1D1D6', fontFamily: "'SF Mono', 'Fira Code', monospace" }}
+                        style={{ color: '#D1D1D6', fontFamily: 'var(--app-font-mono)' }}
                       >
                         {variable.name}
                       </span>
@@ -304,7 +304,7 @@ export function WorkspacePanel({ state, dispatch }: WorkspacePanelProps) {
                           padding: '0 6px',
                           fontSize: '0.68rem',
                           outline: 'none',
-                          fontFamily: "'SF Mono', 'Fira Code', monospace",
+                          fontFamily: 'var(--app-font-mono)',
                         }}
                       />
                       <button

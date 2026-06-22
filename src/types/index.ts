@@ -4,10 +4,19 @@ export type NumBase = 'hex' | 'dec' | 'oct' | 'bin';
 export type BitWidth = 8 | 16 | 32 | 64;
 export type NotationMode = 'auto' | 'fixed' | 'scientific' | 'engineering';
 export type WorkspaceTemplate = 'tip-total' | 'percent-change' | 'compound-interest';
+export type ThemePreset = 'graphite' | 'midnight' | 'paper';
+export type AccentPreset = 'orange' | 'cyan' | 'green' | 'purple' | 'pink';
+export type FontPreset = 'system' | 'rounded' | 'mono' | 'serif';
 
 export interface FormatSettings {
   significantDigits: number;
   notation: NotationMode;
+}
+
+export interface AppearanceSettings {
+  theme: ThemePreset;
+  accent: AccentPreset;
+  font: FontPreset;
 }
 
 export interface HistoryEntry {
@@ -71,6 +80,7 @@ export interface CalcState {
   numBase: NumBase;
   bitWidth: BitWidth;
   formatSettings: FormatSettings;
+  appearance: AppearanceSettings;
   history: HistoryEntry[];
   workspace: WorkspaceDocument;
   isError: boolean;
@@ -94,6 +104,9 @@ export type Action =
   | { type: 'SET_BIT_WIDTH'; width: BitWidth }
   | { type: 'SET_FORMAT_SIGNIFICANT_DIGITS'; digits: number }
   | { type: 'SET_FORMAT_NOTATION'; notation: NotationMode }
+  | { type: 'SET_THEME_PRESET'; theme: ThemePreset }
+  | { type: 'SET_ACCENT_PRESET'; accent: AccentPreset }
+  | { type: 'SET_FONT_PRESET'; font: FontPreset }
   | { type: 'TOGGLE_HISTORY_PIN'; id: string }
   | { type: 'SET_HISTORY_NOTE'; id: string; note: string }
   | { type: 'CLEAR_HISTORY' }

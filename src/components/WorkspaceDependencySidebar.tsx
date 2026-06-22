@@ -58,7 +58,7 @@ export function WorkspaceDependencySidebar({
         </p>
         <p
           className="text-[11px] truncate"
-          style={{ color: '#D1D1D6', fontFamily: "'SF Mono', 'Fira Code', monospace" }}
+          style={{ color: '#D1D1D6', fontFamily: 'var(--app-font-mono)' }}
           title={graph.evaluationOrderLineIds.map((lineId) => {
             const node = nodeById.get(lineId);
             return node ? labelForLineIndex(node.lineIndex) : lineId;
@@ -98,7 +98,7 @@ export function WorkspaceDependencySidebar({
               {node.outputVariable && (
                 <span
                   className="text-[10px] px-1.5 py-0.5 rounded"
-                  style={{ backgroundColor: '#2C2C2E', color: '#64D2FF', fontFamily: "'SF Mono', 'Fira Code', monospace" }}
+                  style={{ backgroundColor: '#2C2C2E', color: '#64D2FF', fontFamily: 'var(--app-font-mono)' }}
                 >
                   {node.outputVariable}
                 </span>
@@ -106,7 +106,7 @@ export function WorkspaceDependencySidebar({
             </div>
             <p
               className="text-[11px] truncate mt-1"
-              style={{ color: '#D1D1D6', fontFamily: "'SF Mono', 'Fira Code', monospace" }}
+              style={{ color: '#D1D1D6', fontFamily: 'var(--app-font-mono)' }}
               title={node.expression}
             >
               {node.expression || '—'}
